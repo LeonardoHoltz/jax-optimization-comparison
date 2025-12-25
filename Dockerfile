@@ -10,12 +10,6 @@ COPY pixi.lock .
 # install dependencies to `/workspace/.pixi/envs/default`
 # use `--locked` to ensure the lockfile is up to date with pyproject.toml
 RUN pixi install --locked
-# create the shell-hook bash script to activate the environment (use pixi context when running commands)
-RUN pixi shell-hook -e default -s bash > /shell-hook
-RUN echo "#!/bin/bash" > /workspace/entrypoint.sh
-RUN cat /shell-hook >> /workspace/entrypoint.sh
-# extend the shell-hook script to run the command passed to the container
-RUN echo 'exec "$@"' >> /workspace/entrypoint.sh
 
 # ======================================================================
 
@@ -24,13 +18,12 @@ FROM ubuntu:24.04 AS dev
 
 WORKDIR /workspace
 
-# only copy the production environment into prod container
+# only copy the environment from the build stage
 # please note that the "prefix" (path) needs to stay the same as in the build container
 COPY --from=build /workspace/.pixi/envs/default /workspace/.pixi/envs/default
-COPY --from=build --chmod=0755 /workspace/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-# set up bash to source the entrypoint script on start
-RUN echo "source /usr/local/bin/entrypoint.sh" >> /etc/bash.bashrc
+# Set pixi python to PATH
+ENV PIXI_ENV=/workspace/.pixi/envs/default
+ENV PATH="$PIXI_ENV/bin:$PATH"
 
-ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]
 CMD [ "bash" ]

@@ -1,3 +1,0 @@
-services:
-  dev:
-    command: /usr/bin/bash -c "while sleep 1000; do :; done"
