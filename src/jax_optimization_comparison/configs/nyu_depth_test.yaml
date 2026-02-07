@@ -1,5 +1,0 @@
-save_path: 
-
-dataset:
-  _target_: jax_optimization_comparison.datasets.cv.NYUDepthDataset
-  path: "data/nyu_depth_v2_labeled.mat"

@@ -1,0 +1,8 @@
+exp_name: exp1
+save_path: outputs/${exp_name}
+hooks: []
+
+defaults:
+  - trainer: default_trainer
+  - dataset: pmlb_mushroom
+  - model: linear

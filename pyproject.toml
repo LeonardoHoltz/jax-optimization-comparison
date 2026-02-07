@@ -1,5 +1,5 @@
 [project]
-dependencies = ["jax[cuda13]>=0.8.2,<0.9", "flax>=0.12.2,<0.13", "evosax>=0.2.0,<0.3"]
+dependencies = ["jax[cuda13]>=0.8.2,<0.9", "flax>=0.12.2,<0.13", "evosax>=0.2.0,<0.3", "pmlb==1.0.1.post3"]
 name = "jax-optimization-comparison"
 requires-python = "== 3.11"
 version = "0.1.0"

@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 
 class Linear(nnx.Module):
-    def __init__(self, din: int, dout: int, rngs: nnx.Rngs):
+    def __init__(self, din: int, dout: int, rngs: nnx.Rngs = nnx.Rngs(42)):
         self.w = nnx.Param(rngs.uniform((din, dout)))
         self.b = nnx.Param(jnp.zeros((dout,)))
         self.din, self.dout = din, dout
