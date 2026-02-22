@@ -10,27 +10,32 @@ class PMLBDatasetManager(DatasetManager):
         self.logger.info(f"Input data: {self.X.shape}")
         self.logger.info(f"Target data: {self.y.shape}")
     
-    def get_train_loader(self):
-        train_dataset = XYDataset(self.train_data["X"], self.train_data["y"])
+    def get_train_ds(self):
+        return XYDataset(self.train_data["X"], self.train_data["y"])
+    
+    def get_val_ds(self):
+        return XYDataset(self.val_data["X"], self.val_data["y"])
+
+    def get_train_loader(self, dataset):
         return DataLoader(
-            train_dataset,
+            dataset,
             batch_size=self.dataset_cfg.batch_size,
             shuffle=True,
             num_workers=0,
             collate_fn=self.jax_collate_fn
         )
 
-    def get_val_loader(self):
-        val_dataset = XYDataset(self.val_data["X"], self.val_data["y"])
+    def get_val_loader(self, dataset):
         return DataLoader(
-            val_dataset,
+            dataset,
             batch_size=self.dataset_cfg.batch_size,
             shuffle=False,
             num_workers=0,
             collate_fn=self.jax_collate_fn
         )
     
-    def resolve(self, dataset_name: str):
+    def resolve(self):
+        dataset_name = self.dataset_cfg.name
         ds_dir = self.root / dataset_name
         X_path = ds_dir / "X.npy"
         y_path = ds_dir / "y.npy"
