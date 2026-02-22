@@ -1,5 +1,6 @@
 exp_name: exp1
 save_path: outputs/${exp_name}
+seed: 42
 hooks: []
 
 defaults:

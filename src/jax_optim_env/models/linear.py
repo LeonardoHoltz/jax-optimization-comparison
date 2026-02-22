@@ -13,6 +13,5 @@ class Linear(nnx.Module):
 
 model = Linear(2, 5, rngs=nnx.Rngs(42))
 y = model(x=jnp.ones((1, 2)))
-
 print(y)
 nnx.display(model)

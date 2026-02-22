@@ -1,0 +1,5 @@
+_target_: jax_optim_env.datasets.pmlb.PMLBDatasetManager
+name: mushroom
+root: data/pmlb/${name}
+val_split: 0.8
+batch_size: 32
