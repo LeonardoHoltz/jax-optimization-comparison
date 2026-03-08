@@ -2,8 +2,12 @@ exp_name: exp1
 save_path: outputs/${exp_name}
 seed: 42
 hooks: []
+learning_rate: 0.001
+epochs: 100
 
 defaults:
   - trainer: default_trainer
   - dataset: pmlb_mushroom
   - model: linear
+  - optimizer: adam
+  - loss: cross_entropy

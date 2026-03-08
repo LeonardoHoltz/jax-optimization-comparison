@@ -4,9 +4,9 @@ from pmlb import fetch_data
 from .default import DatasetManager, XYDataset
 
 class PMLBDatasetManager(DatasetManager):
-    def __init__(self, dataset_cfg):
-        super().__init__(dataset_cfg)
-        self.logger.info(f"PLMB Dataset {dataset_cfg.name} loaded. Shape info:")
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger.info(f"PLMB Dataset {self.name} loaded. Shape info:")
         self.logger.info(f"Input data: {self.X.shape}")
         self.logger.info(f"Target data: {self.y.shape}")
     
@@ -19,24 +19,24 @@ class PMLBDatasetManager(DatasetManager):
     def get_train_loader(self, dataset):
         return DataLoader(
             dataset,
-            batch_size=self.dataset_cfg.batch_size,
+            batch_size=self.batch_size,
             shuffle=True,
             num_workers=0,
-            collate_fn=self.jax_collate_fn
+            collate_fn=self.jax_collate_fn,
+            drop_last=True,
         )
 
     def get_val_loader(self, dataset):
         return DataLoader(
             dataset,
-            batch_size=self.dataset_cfg.batch_size,
+            batch_size=self.batch_size,
             shuffle=False,
             num_workers=0,
             collate_fn=self.jax_collate_fn
         )
     
     def resolve(self):
-        dataset_name = self.dataset_cfg.name
-        ds_dir = self.root / dataset_name
+        ds_dir = self.root / self.name
         X_path = ds_dir / "X.npy"
         y_path = ds_dir / "y.npy"
 
@@ -47,7 +47,7 @@ class PMLBDatasetManager(DatasetManager):
         else:
             # Downloads and saves
             X, y = fetch_data(
-                dataset_name=dataset_name,
+                dataset_name=self.name,
                 return_X_y=True,
                 dropna=True,
             )

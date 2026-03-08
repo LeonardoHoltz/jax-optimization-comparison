@@ -1,3 +1,2 @@
-_target_: jax_optimization_comparison.models.linear.Linear
-din: ${dataset.num_features}
-dout: ${dataset.num_labels}
+_target_: jax_optim_env.models.linear.Linear
+dout: ${dataset.num_classes}

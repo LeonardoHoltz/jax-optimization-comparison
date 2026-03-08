@@ -6,11 +6,16 @@ import numpy as np
 import jax.numpy as jnp
 
 class DatasetManager:
-    def __init__(self, dataset_cfg):
+    def __init__(self, name, num_features, num_classes, root, val_split, batch_size, seed):
         self.logger = logging.getLogger()
-        self.dataset_cfg = dataset_cfg
-        self.root = Path(self.dataset_cfg.root)
+        self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self.name = name
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.val_split = val_split
+        self.batch_size = batch_size
+        self.seed = seed
         self.resolve()
         self.split()
 
@@ -20,8 +25,8 @@ class DatasetManager:
     def split(self):
         X_train, X_val, y_train, y_val = train_test_split(
             self.X, self.y,
-            test_size=self.dataset_cfg.val_split,
-            random_state=self.cfg.seed
+            test_size=self.val_split,
+            random_state=self.seed
         )
         self.train_data = {"X": X_train, "y": y_train}
         self.val_data = {"X": X_val, "y": y_val}

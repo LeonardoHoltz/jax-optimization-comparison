@@ -1,1 +1,2 @@
-_target_:
+_target_: jax_optim_env.utils.loss.cross_entropy_loss
+_call_: false
