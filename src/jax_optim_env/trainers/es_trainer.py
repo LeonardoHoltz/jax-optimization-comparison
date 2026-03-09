@@ -6,6 +6,7 @@ from flax.training import train_state
 from torch.utils.tensorboard import SummaryWriter
 from lerna.core.hydra_config import HydraConfig
 import evosax
+from evosax.algorithms import CMA_ES, SimpleGA
 from jax.flatten_util import ravel_pytree
 
 # Some terminologies are a little different for evolution strategies (ES)
@@ -14,13 +15,13 @@ from jax.flatten_util import ravel_pytree
 
 class ESTrainer:
     def __init__(self, pop_size, cfg):
-        self.pop_size
+        self.pop_size = pop_size
         self.cfg = cfg
         self.logger = logging.getLogger(cfg.exp_name)
         output_log_dir = HydraConfig.get().runtime.output_dir
         self.writer = SummaryWriter(output_log_dir)
 
-        self.rng = jax.random.PRNGKey(cfg.seed)
+        self.key = jax.random.PRNGKey(cfg.seed)
 
         self.logger.info(jax.devices())
 
@@ -36,60 +37,49 @@ class ESTrainer:
         #self.create_hooks()
 
     def _compile(self):
-        def loss_fn(theta):
-            params = self.unravel_fn(theta)
-            preds = self.model.apply(params, self.x)
-            return jnp.mean((preds - self.y) ** 2)
+        def loss_fn(params):
+            pred = self.model.apply(params, self.train_X)
+            return self.loss_fn(pred, self.train_y)
 
         def train_step(key, state):
-            key, subkey = jax.random.split(key)
+            key, key_ask, key_tell = jax.random.split(key, 3)
 
             population, state = self.strategy.ask(
-                subkey,
+                key_ask,
                 state,
-                self.es_params
+                self.params
             )
             fitness = jax.vmap(loss_fn)(population)
-            state = self.strategy.tell(
+            state, _ = self.strategy.tell(
+                key_tell,
                 population,
                 fitness,
                 state,
-                self.es_params
+                self.params
             )
             return key, state, fitness
 
-        self.step = jax.jit(train_step)
+        self.train_step = jax.jit(train_step)
 
     def fit(self):
         for self.step in range(self.cfg.epochs):
-            epoch_train_loss = self.train_step(self.rng, )
-            epoch_train_loss = float(epoch_train_loss)
-        
-            self.logger.info(
-                f"Epoch {self.epoch} | train={epoch_train_loss:.4f}"
+            self.key, self.state, fitness = self.train_step(self.key, self.state)
+            fitness_min = float(fitness.min())
+            fitness_mean = float(fitness.mean())
+            self.writer.add_scalar(
+                "train/fitness_min",
+                fitness_min,
+                self.step
             )
             self.writer.add_scalar(
-                "train/loss_epoch",
-                epoch_train_loss,
-                self.epoch
+                "train/fitness_mean",
+                fitness_mean,
+                self.step
+            )
+            self.logger.info(
+                f"Step {self.step} | train fitness min={fitness_min:.4f}"
             )
         self.writer.close()
-    
-    def run_train_epoch(self):
-        
-        loss_fn = self.loss_fn
-
-        losses = []
-        for i, (x, y) in enumerate(self.train_loader):
-            self.state, loss = train_step(self.state, x, y)
-            loss_value = float(loss)
-            losses.append(loss)
-            self.writer.add_scalar(
-                "train/loss_step",
-                loss_value,
-                self.epoch * len(self.train_loader) + i
-            )
-        return jnp.mean(jnp.stack(losses))
 
     def prepare_dataset(self):
         dataset_manager = instantiate(self.cfg.dataset)
@@ -103,22 +93,19 @@ class ESTrainer:
     def prepare_model(self):
         self.model = instantiate(self.cfg.model)
         dummy_x = jnp.zeros((1, self.train_ds.X.shape[1]))
-        self.rng, init_rng = jax.random.split(self.rng)
+        self.key, init_key = jax.random.split(self.key)
 
-        params = self.model.init(init_rng, dummy_x)
-        theta0, unravel_fn = ravel_pytree(params)
-        num_dims = theta0.shape[0]
+        solution = self.model.init(init_key, dummy_x) # The model params is referenced in evosax terminology as solution
 
-        self.strategy = evosax.OpenES(
-            popsize=self.pop_size,
-            num_dims=num_dims
+        self.strategy = CMA_ES(
+            population_size=self.pop_size,
+            solution=solution # requires a dummy solution
         )
-        self.es_params = self.strategy.default_params
-        self.state = self.strategy.initialize(self.rng, self.es_params)
+        self.params = self.strategy.default_params
+        self.state = self.strategy.init(self.key, solution, self.params)
     
     def prepare_loss_fn(self):
-        loss_fn = instantiate(self.cfg.loss)
-        self.batched_loss = jax.vmap(loss_fn, in_axes=(0, None, None))
+        self.loss_fn = instantiate(self.cfg.loss)
 
     #def create_hooks(self):
     #    for hook_cfg in self.cfg.hooks:

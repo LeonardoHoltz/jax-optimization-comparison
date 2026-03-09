@@ -1,2 +1,2 @@
-_target_: jax_optim_env.trainers.default_trainer.ESTrainer
+_target_: jax_optim_env.trainers.es_trainer.ESTrainer
 pop_size: 64
