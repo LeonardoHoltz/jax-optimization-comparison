@@ -1,4 +1,4 @@
-exp_name: exp1
+exp_name: "SGD_Adam_mushroom"
 save_path: outputs/${exp_name}
 seed: 42
 hooks: []
@@ -11,3 +11,11 @@ defaults:
   - model: linear
   - optimizer: adam
   - loss: cross_entropy
+
+
+
+hydra:
+  job:
+    name: ${exp_name}
+  run:
+    dir: outputs/${exp_name}

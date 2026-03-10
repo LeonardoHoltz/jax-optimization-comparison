@@ -1,5 +1,5 @@
 [project]
-dependencies = ["jax[cuda13]>=0.8.2,<0.9", "flax>=0.12.2,<0.13", "evosax>=0.2.0,<0.3", "pmlb==1.0.1.post3"]
+dependencies = ["jax[cuda13]>=0.8.2,<0.9", "flax>=0.12.2,<0.13", "evosax>=0.2.0,<0.3", "pmlb==1.0.1.post3", "tensorflow>=2.20.0,<3"]
 name = "jax-optim-env"
 requires-python = "== 3.11"
 version = "0.1.0"
@@ -27,3 +27,4 @@ scikit-learn = ">=1.8.0,<2"
 pytorch = ">=2.10.0,<3"
 tensorboard = ">=2.20.0,<3"
 lerna = ">=2.0.3,<3"
+setuptools = "<82.0.0"

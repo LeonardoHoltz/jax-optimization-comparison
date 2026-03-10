@@ -1,4 +1,4 @@
-exp_name: exp_open_es
+exp_name: NE_CMA_ES_mushroom
 save_path: outputs/${exp_name}
 seed: 42
 hooks: []
@@ -11,3 +11,9 @@ defaults:
   - model: linear
   - optimizer: adam
   - loss: cross_entropy
+
+hydra:
+  job:
+    name: ${exp_name}
+  run:
+    dir: outputs/${exp_name}
