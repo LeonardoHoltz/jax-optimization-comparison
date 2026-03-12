@@ -3,7 +3,7 @@ from lerna.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 import logging
 
-@lerna.main(version_base=None, config_path="../configs", config_name="default")
+@lerna.main(version_base=None, config_path="../configs", config_name="sgd_exp")
 def main(config: DictConfig) -> None:
 
     log = logging.getLogger(config.exp_name)

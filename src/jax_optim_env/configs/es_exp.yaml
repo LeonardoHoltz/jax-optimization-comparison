@@ -9,7 +9,7 @@ defaults:
   - trainer: es_trainer
   - dataset: pmlb_mushroom
   - model: linear
-  - optimizer: adam
+  - optimizer: cma_es
   - loss: cross_entropy
 
 hydra:

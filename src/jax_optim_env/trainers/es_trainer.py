@@ -14,8 +14,7 @@ from jax.flatten_util import ravel_pytree
 # considering the entire training dataset
 
 class ESTrainer:
-    def __init__(self, pop_size, cfg):
-        self.pop_size = pop_size
+    def __init__(self, cfg):
         self.cfg = cfg
         self.logger = logging.getLogger(cfg.exp_name)
         output_log_dir = HydraConfig.get().runtime.output_dir
@@ -97,9 +96,11 @@ class ESTrainer:
 
         solution = self.model.init(init_key, dummy_x) # The model params is referenced in evosax terminology as solution
 
-        self.strategy = CMA_ES(
-            population_size=self.pop_size,
-            solution=solution # requires a dummy solution
+        # Creates an evosax.algorithm object
+        print(self.cfg.optimizer)
+        self.strategy = instantiate(
+            self.cfg.optimizer,
+            solution=solution, # requires a dummy solution
         )
         self.params = self.strategy.default_params
         self.state = self.strategy.init(self.key, solution, self.params)
