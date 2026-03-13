@@ -6,7 +6,7 @@ from flax.training import train_state
 from torch.utils.tensorboard import SummaryWriter
 from lerna.core.hydra_config import HydraConfig
 
-class DefaultTrainer:
+class SGDTrainer:
     def __init__(self, cfg):
         self.cfg = cfg
         self.logger = logging.getLogger(cfg.exp_name)

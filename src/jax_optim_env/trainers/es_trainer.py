@@ -98,9 +98,13 @@ class ESTrainer:
 
         # Creates an evosax.algorithm object
         print(self.cfg.optimizer)
-        self.strategy = instantiate(
-            self.cfg.optimizer,
-            solution=solution, # requires a dummy solution
+        #self.strategy = instantiate(
+        #    self.cfg.optimizer,
+        #    solution=solution, # requires a dummy solution
+        #)
+        self.strategy = CMA_ES(
+            population_size=self.cfg.optimizer.population_size,
+            solution=solution,
         )
         self.params = self.strategy.default_params
         self.state = self.strategy.init(self.key, solution, self.params)

@@ -1,4 +1,4 @@
-exp_name: NE_CMA_ES_mushroom
+exp_name: NE_${hydra:runtime.choices.optimizer}_${dataset.name}
 save_path: outputs/${exp_name}
 seed: 42
 hooks: []
