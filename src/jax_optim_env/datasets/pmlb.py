@@ -42,19 +42,24 @@ class PMLBDatasetManager(DatasetManager):
 
         if X_path.exists() and y_path.exists():
             # Already downloaded
-            self.X = np.load(X_path)
+            self.X = np.load(X_path).astype(np.float32)
             self.y = np.load(y_path)
         else:
             # Downloads and saves
-            X, y = fetch_data(
+            self.X, self.y = fetch_data(
                 dataset_name=self.name,
                 return_X_y=True,
                 dropna=True,
             )
-            self.X = X.astype(np.float32)
-            self.y = y.astype(np.float32)
-
+            self.X = self.X.astype(np.float32)
+            
             ds_dir.mkdir(parents=True, exist_ok=True)
-            np.save(X_path, X)
-            np.save(y_path, y)
+            np.save(X_path, self.X)
+            np.save(y_path, self.y)
+
+        # Cast y based on task type
+        if self.num_classes > 0:
+            self.y = self.y.astype(np.int32)
+        else:
+            self.y = self.y.astype(np.float32)
     

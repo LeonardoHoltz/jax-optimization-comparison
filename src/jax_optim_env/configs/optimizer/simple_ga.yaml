@@ -1,0 +1,2 @@
+_target_: evosax.algorithms.SimpleGA
+population_size: 64

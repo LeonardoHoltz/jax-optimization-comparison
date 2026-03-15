@@ -4,6 +4,7 @@ seed: 42
 hooks: []
 learning_rate: 0.001
 epochs: 100
+eval_every: 1
 
 defaults:
   - trainer: sgd_trainer
@@ -11,7 +12,7 @@ defaults:
   - model: linear
   - optimizer: adam
   - loss: cross_entropy
-
+  - _self_
 
 
 hydra:

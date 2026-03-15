@@ -3,7 +3,8 @@ save_path: outputs/${exp_name}
 seed: 42
 hooks: []
 learning_rate: 0.001
-epochs: 100
+generations: 100
+eval_every_gen: 10
 
 defaults:
   - trainer: es_trainer
@@ -11,6 +12,7 @@ defaults:
   - model: linear
   - optimizer: cma_es
   - loss: cross_entropy
+  - _self_
 
 hydra:
   job:

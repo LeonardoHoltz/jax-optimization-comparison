@@ -5,6 +5,9 @@ import jax.numpy as jnp
 from flax.training import train_state
 from torch.utils.tensorboard import SummaryWriter
 from lerna.core.hydra_config import HydraConfig
+import os
+from jax_optim_env.utils.metrics import accuracy, mse, mae
+from jax_optim_env.utils.checkpointing import save_checkpoint
 
 class SGDTrainer:
     def __init__(self, cfg):
@@ -27,6 +30,7 @@ class SGDTrainer:
         self._compile()
         #self.logger.info(" => Creating hooks ...")
         #self.create_hooks()
+        self.best_loss = float('inf')
 
     def _compile(self):
         def train_step(state, x, y):
@@ -41,6 +45,13 @@ class SGDTrainer:
             return state, loss
         self.train_step = jax.jit(train_step)
 
+        def eval_step(state, x, y):
+            pred = state.apply_fn(state.params, x)
+            loss = self.loss_fn(pred, y)
+            return loss, pred
+
+        self.eval_step = jax.jit(eval_step)
+
     def fit(self):
         for self.epoch in range(self.cfg.epochs):
             epoch_train_loss = self.run_train_epoch()
@@ -54,7 +65,42 @@ class SGDTrainer:
                 epoch_train_loss,
                 self.epoch
             )
+
+            # Evaluation
+            val_loss, val_acc = self.evaluate()
+            self.writer.add_scalar("val/loss", val_loss, self.epoch)
+            if val_acc is not None:
+                self.writer.add_scalar("val/accuracy", val_acc, self.epoch)
+            
+            self.logger.info(f"Epoch {self.epoch} | val loss={val_loss:.4f}" + (f" accuracy={val_acc:.4f}" if val_acc is not None else ""))
+
+            # Track best model in memory
+            if val_loss < self.best_loss:
+                self.best_loss = val_loss
+                self.best_state = self.state
+                self.logger.info(f"Epoch {self.epoch} | New best val loss: {val_loss:.4f}")
+
+        if hasattr(self, 'best_state') and self.best_state is not None:
+            checkpoint_path = os.path.join(self.cfg.save_path, "best_model.msgpack")
+            save_checkpoint(self.best_state, checkpoint_path)
+            self.logger.info(f"Final best model saved to {checkpoint_path}")
+
         self.writer.close()
+
+    def evaluate(self):
+        losses = []
+        accs = []
+        for x, y in self.val_loader:
+            loss, logits = self.eval_step(self.state, x, y)
+            losses.append(loss)
+            
+            if y.ndim == 1 or (y.ndim == 2 and y.shape[1] > 1):
+                accs.append(accuracy(logits, y))
+        
+        avg_loss = float(jnp.mean(jnp.stack(losses)))
+        avg_acc = float(jnp.mean(jnp.stack(accs))) if accs else None
+        
+        return avg_loss, avg_acc
     
     def run_train_epoch(self):
         losses = []
