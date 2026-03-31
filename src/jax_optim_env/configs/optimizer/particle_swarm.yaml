@@ -1,0 +1,2 @@
+_target_: evosax.algorithms.PSO
+population_size: 64

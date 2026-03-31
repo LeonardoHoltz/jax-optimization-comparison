@@ -20,3 +20,9 @@ hydra:
     name: ${exp_name}
   run:
     dir: outputs/${exp_name}
+  # Multirun setup for seeds
+  #sweep:
+  #  dir: outputs/${exp_name}
+  sweeper:
+    params:
+      seed: 40, 41, 42, 43, 44

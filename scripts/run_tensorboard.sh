@@ -1,0 +1,1 @@
+pixi run tensorboard --logdir $1
