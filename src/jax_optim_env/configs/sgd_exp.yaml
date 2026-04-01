@@ -1,4 +1,4 @@
-exp_name: "SGD_${hydra:runtime.choices.optimizer}_${dataset.name}"
+exp_name: "SGD_${optimizer._target_}_${dataset.name}"
 save_path: outputs/${exp_name}
 seed: 42
 hooks: []
@@ -21,8 +21,8 @@ hydra:
   run:
     dir: outputs/${exp_name}
   # Multirun setup for seeds
-  #sweep:
-  #  dir: outputs/${exp_name}
+  sweep:
+    dir: outputs/${exp_name}
   sweeper:
     params:
       seed: 40, 41, 42, 43, 44
