@@ -1,19 +1,18 @@
-exp_name: "SGD_${optimizer._target_}_${dataset.name}"
+exp_name: NE_${optimizer._target_}_${dataset.name}
 save_path: outputs/${exp_name}
 seed: 42
 hooks: []
 learning_rate: 0.001
-epochs: 100
-eval_every: 1
+generations: 100
+eval_every_gen: 10
 
 defaults:
-  - trainer: sgd_trainer
+  - trainer: es_trainer
   - dataset: pmlb_mushroom
   - model: linear
-  - optimizer: adam
+  - optimizer: simple_ga
   - loss: cross_entropy
   - _self_
-
 
 hydra:
   job:

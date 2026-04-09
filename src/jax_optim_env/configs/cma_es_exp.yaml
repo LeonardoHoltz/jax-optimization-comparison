@@ -1,4 +1,4 @@
-exp_name: NE_${hydra:runtime.choices.optimizer}_${dataset.name}
+exp_name: NE_${optimizer._target_}_${dataset.name}
 save_path: outputs/${exp_name}
 seed: 42
 hooks: []
@@ -19,3 +19,7 @@ hydra:
     name: ${exp_name}
   run:
     dir: outputs/${exp_name}
+  # Multirun setup for seeds
+  sweep:
+    dir: outputs/${exp_name}
+  # It is recommended to sweep parameters through the scripts or command line
