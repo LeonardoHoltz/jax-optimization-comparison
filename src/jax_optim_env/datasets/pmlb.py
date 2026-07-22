@@ -1,9 +1,9 @@
 from torch.utils.data import DataLoader
 import numpy as np
 from pmlb import fetch_data
-from .default import DatasetManager, XYDataset
+from .default import DataModule, XYDataset
 
-class PMLBDatasetManager(DatasetManager):
+class PMLBDataModule(DataModule):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.logger.info(f"PLMB Dataset {self.name} loaded. Shape info:")

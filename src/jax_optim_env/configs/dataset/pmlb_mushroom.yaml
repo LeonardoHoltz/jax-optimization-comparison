@@ -1,4 +1,4 @@
-_target_: jax_optim_env.datasets.pmlb.PMLBDatasetManager
+_target_: jax_optim_env.datasets.pmlb.PMLBDataModule
 name: mushroom
 num_features: 22
 num_classes: 2

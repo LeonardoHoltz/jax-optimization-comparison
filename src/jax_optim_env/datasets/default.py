@@ -5,7 +5,7 @@ import logging
 import numpy as np
 import jax.numpy as jnp
 
-class DatasetManager:
+class DataModule:
     def __init__(self, name, num_features, num_classes, root, val_split, batch_size, seed):
         self.logger = logging.getLogger()
         self.root = Path(root)
