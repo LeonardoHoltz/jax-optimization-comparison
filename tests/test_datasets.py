@@ -1,9 +1,9 @@
-from pathlib import Path
+import numpy as np
+import pytest
 
-import pandas as pd
-
-from jax_optim_env.datasets.adult_income import AdultIncomeDataModule
+from jax_optim_env.datasets.pmlb import PMLBDataModule
 from jax_optim_env.datasets.sklearn import SklearnDataModule
+from jax_optim_env.datasets.tabm import TabMDataModule
 
 
 def test_sklearn_dataset_manager_loads_california_housing(tmp_path):
@@ -24,28 +24,54 @@ def test_sklearn_dataset_manager_loads_california_housing(tmp_path):
     assert manager.val_data["y"].shape[0] == manager.val_data["X"].shape[0]
 
 
-def test_adult_income_datamodule_loads_csv(tmp_path):
-    csv_path = tmp_path / "adult.csv"
-    pd.DataFrame(
-        {
-            "age": [39, 50],
-            "workclass": ["State-gov", "Private"],
-            "education": ["Bachelors", "HS-grad"],
-            "income": [">50K", "<=50K"],
-        }
-    ).to_csv(csv_path, index=False)
+def test_pmlb_datamodule_raises_when_missing(tmp_path):
+    with pytest.raises(FileNotFoundError, match="prepare_dataset.pmlb"):
+        PMLBDataModule(
+            name="mushroom",
+            num_features=22,
+            num_classes=2,
+            root=tmp_path,
+            val_split=0.2,
+            batch_size=2,
+            seed=0,
+        )
 
-    manager = AdultIncomeDataModule(
-        name="adult_income",
-        num_features=8,
-        num_classes=1,
+
+def test_tabm_datamodule_loads_split_npy_files(tmp_path):
+    ds_dir = tmp_path / "microsoft"
+    ds_dir.mkdir()
+
+    rng = np.random.default_rng(0)
+    for split, n in (("train", 6), ("val", 2), ("test", 2)):
+        np.save(ds_dir / f"X_num_{split}.npy", rng.normal(size=(n, 3)).astype(np.float32))
+        np.save(ds_dir / f"X_bin_{split}.npy", rng.integers(0, 2, size=(n, 1)).astype(np.float32))
+        np.save(ds_dir / f"X_cat_{split}.npy", np.array([["a"], ["b"]] * (n // 2)))
+        np.save(ds_dir / f"Y_{split}.npy", rng.normal(size=(n,)).astype(np.float32))
+
+    manager = TabMDataModule(
+        name="microsoft",
+        num_features=6,
+        num_classes=0,
         root=tmp_path,
-        val_split=0.5,
+        val_split=0.2,
         batch_size=2,
         seed=0,
     )
 
-    assert manager.X.shape[0] == 2
-    assert manager.y.shape[0] == 2
-    assert manager.train_data["X"].shape[0] == 1
-    assert manager.val_data["X"].shape[0] == 1
+    assert manager.X.shape == (10, 6)
+    assert manager.y.shape == (10,)
+    assert manager.train_data["X"].shape[0] == 8
+    assert manager.val_data["X"].shape[0] == 2
+
+
+def test_tabm_datamodule_raises_when_missing(tmp_path):
+    with pytest.raises(FileNotFoundError, match="prepare_dataset.huggingface"):
+        TabMDataModule(
+            name="microsoft",
+            num_features=136,
+            num_classes=0,
+            root=tmp_path,
+            val_split=0.2,
+            batch_size=2,
+            seed=0,
+        )

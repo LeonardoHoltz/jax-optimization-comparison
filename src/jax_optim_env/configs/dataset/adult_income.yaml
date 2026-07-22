@@ -1,8 +1,0 @@
-_target_: jax_optim_env.datasets.adult_income.AdultIncomeDataModule
-name: adult_income
-num_features: 32
-num_classes: 1
-root: data/adult_income/${dataset.name}
-val_split: 0.2
-batch_size: 32
-seed: ${seed}

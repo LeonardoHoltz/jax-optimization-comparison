@@ -1,6 +1,5 @@
 from torch.utils.data import DataLoader
 import numpy as np
-from pmlb import fetch_data
 from .default import DataModule, XYDataset
 
 class PMLBDataModule(DataModule):
@@ -40,22 +39,14 @@ class PMLBDataModule(DataModule):
         X_path = ds_dir / "X.npy"
         y_path = ds_dir / "y.npy"
 
-        if X_path.exists() and y_path.exists():
-            # Already downloaded
-            self.X = np.load(X_path).astype(np.float32)
-            self.y = np.load(y_path)
-        else:
-            # Downloads and saves
-            self.X, self.y = fetch_data(
-                dataset_name=self.name,
-                return_X_y=True,
-                dropna=True,
+        if not (X_path.exists() and y_path.exists()):
+            raise FileNotFoundError(
+                f"PMLB dataset '{self.name}' was not found at {ds_dir}. Download it first with:\n"
+                f"  pixi run python -m jax_optim_env.prepare_dataset.pmlb --name {self.name} --root {self.root}"
             )
-            self.X = self.X.astype(np.float32)
-            
-            ds_dir.mkdir(parents=True, exist_ok=True)
-            np.save(X_path, self.X)
-            np.save(y_path, self.y)
+
+        self.X = np.load(X_path).astype(np.float32)
+        self.y = np.load(y_path)
 
         # Cast y based on task type
         if self.num_classes > 0:
