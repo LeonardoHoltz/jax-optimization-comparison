@@ -13,7 +13,7 @@ eval_every: 1
 
 defaults:
   - trainer: sgd_trainer
-  - dataset: sklearn_california_housing
+  - dataset: tabm_california
   - model: mlp_california
   - optimizer: adamw
   - loss: mse
@@ -27,4 +27,5 @@ hydra:
   # Multirun setup for optimizers/seeds
   sweep:
     dir: outputs/${exp_name}
+    subdir: "."
   # It is recommended to sweep parameters through the scripts or command line

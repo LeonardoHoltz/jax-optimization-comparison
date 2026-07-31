@@ -42,7 +42,7 @@ class PMLBDataModule(DataModule):
         if not (X_path.exists() and y_path.exists()):
             raise FileNotFoundError(
                 f"PMLB dataset '{self.name}' was not found at {ds_dir}. Download it first with:\n"
-                f"  pixi run python -m jax_optim_env.prepare_dataset.pmlb --name {self.name} --root {self.root}"
+                f"  pixi run python -m jax_optim_env.prepare_dataset.pmlb_dataset --name {self.name} --root {self.root}"
             )
 
         self.X = np.load(X_path).astype(np.float32)

@@ -1,0 +1,15 @@
+# California Housing as distributed in data/tabm/california, i.e. the exact
+# train/val/test split used by Gorishniy et al. (2021) ("Revisiting Deep Learning
+# Models for Tabular Data") and its follow-up TabM benchmark, rather than a fresh
+# random split of the raw sklearn fetch. Note: TabMDataModule concatenates the
+# train/val/test files and then re-splits with `val_split` (see DataModule.split),
+# so the original fixed partition boundaries are not preserved as-is.
+_target_: jax_optim_env.datasets.tabm.TabMDataModule
+name: california
+num_features: 8
+num_classes: 0
+root: data/tabm
+val_split: 0.2
+batch_size: 256
+seed: ${seed}
+normalize: true

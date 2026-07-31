@@ -2,7 +2,7 @@ _target_: jax_optim_env.datasets.sklearn.SklearnDataModule
 name: california_housing
 num_features: 8
 num_classes: 0
-root: data/sklearn/${dataset.name}
+root: data/sklearn
 val_split: 0.2
 batch_size: 256
 seed: ${seed}

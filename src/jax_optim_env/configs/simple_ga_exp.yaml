@@ -22,4 +22,5 @@ hydra:
   # Multirun setup for seeds
   sweep:
     dir: outputs/${exp_name}
+    subdir: "."
   # It is recommended to sweep parameters through the scripts or command line

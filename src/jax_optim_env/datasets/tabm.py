@@ -74,6 +74,12 @@ class TabMDataModule(DataModule):
         else:
             self.y = self.y.astype(np.float32)
 
+        if self.normalize:
+            self.X, self._x_mean, self._x_std = self._standardize(self.X)
+            if self.num_classes == 0:
+                y, self._y_mean, self._y_std = self._standardize(self.y.reshape(-1, 1))
+                self.y = y.reshape(-1).astype(np.float32)
+
     def _raw_files_present(self, ds_dir):
         return any((ds_dir / f"Y_{split}.npy").exists() for split in SPLITS)
 

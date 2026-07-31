@@ -51,7 +51,7 @@ Datasets that don't ship with a Python library (PMLB, Hugging Face) must be down
 
 ```bash
 # PMLB
-pixi run python -m jax_optim_env.prepare_dataset.pmlb --name mushroom --root data/pmlb/mushroom
+pixi run python -m jax_optim_env.prepare_dataset.pmlb_dataset --name mushroom --root data/pmlb
 
 # Hugging Face (e.g. the TabM benchmark datasets from https://github.com/yandex-research/tabular-dl-optimizers,
 # mirrored at https://huggingface.co/datasets/rototoHF/tabm-data)
