@@ -33,9 +33,11 @@ class SGDTrainer:
         self.best_loss = float('inf')
 
     def _compile(self):
-        def train_step(state, x, y):
+        def train_step(state, x, y, dropout_rng):
             def apply_loss_fn(params):
-                pred = state.apply_fn(params, x)
+                pred = state.apply_fn(
+                    params, x, deterministic=False, rngs={"dropout": dropout_rng}
+                )
                 return self.loss_fn(pred, y)
 
             # For jax environments, the reference to the model through the training
@@ -46,7 +48,7 @@ class SGDTrainer:
         self.train_step = jax.jit(train_step)
 
         def eval_step(state, x, y):
-            pred = state.apply_fn(state.params, x)
+            pred = state.apply_fn(state.params, x, deterministic=True)
             loss = self.loss_fn(pred, y)
             return loss, pred
 
@@ -90,11 +92,12 @@ class SGDTrainer:
     def evaluate(self):
         losses = []
         accs = []
+        is_classification = self.cfg.dataset.num_classes and self.cfg.dataset.num_classes > 0
         for x, y in self.val_loader:
             loss, logits = self.eval_step(self.state, x, y)
             losses.append(loss)
-            
-            if y.ndim == 1 or (y.ndim == 2 and y.shape[1] > 1):
+
+            if is_classification and (y.ndim == 1 or (y.ndim == 2 and y.shape[1] > 1)):
                 accs.append(accuracy(logits, y))
         
         avg_loss = float(jnp.mean(jnp.stack(losses)))
@@ -105,7 +108,8 @@ class SGDTrainer:
     def run_train_epoch(self):
         losses = []
         for i, (x, y) in enumerate(self.train_loader):
-            self.state, loss = self.train_step(self.state, x, y)
+            self.rng, dropout_rng = jax.random.split(self.rng)
+            self.state, loss = self.train_step(self.state, x, y, dropout_rng)
             loss_value = float(loss)
             losses.append(loss)
             self.writer.add_scalar(

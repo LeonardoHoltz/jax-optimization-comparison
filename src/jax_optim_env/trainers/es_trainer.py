@@ -42,7 +42,9 @@ class ESTrainer:
     def _compile(self):
         def loss_fn(params):
             params = self.unravel_fn(params)
-            pred = self.model.apply(params, self.train_X)
+            # Deterministic forward pass: dropout must be inert here since ES fitness
+            # signals need to be a stable function of params, not noisy across candidates.
+            pred = self.model.apply(params, self.train_X, deterministic=True)
             return self.loss_fn(pred, self.train_y)
 
         def train_step(key, state):
@@ -67,7 +69,7 @@ class ESTrainer:
 
         def eval_step(params, X, y):
             params = self.unravel_fn(params)
-            logits = self.model.apply(params, X)
+            logits = self.model.apply(params, X, deterministic=True)
             return self.loss_fn(logits, y), logits
 
         self.eval_step = jax.jit(eval_step)
@@ -120,11 +122,12 @@ class ESTrainer:
         # Dynamically extract best parameters based on algorithm type
         best_params_flat = self._get_best_params(self.state)
         val_loss, logits = self.eval_step(best_params_flat, self.val_X, self.val_y)
-        
+
         val_acc = None
-        if self.val_y.ndim == 1 or (self.val_y.ndim == 2 and self.val_y.shape[1] > 1):
+        is_classification = self.cfg.dataset.num_classes and self.cfg.dataset.num_classes > 0
+        if is_classification and (self.val_y.ndim == 1 or (self.val_y.ndim == 2 and self.val_y.shape[1] > 1)):
              val_acc = float(accuracy(logits, self.val_y))
-        
+
         return float(val_loss), val_acc
 
     def _get_best_params(self, state):

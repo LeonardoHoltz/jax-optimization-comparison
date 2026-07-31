@@ -1,0 +1,2 @@
+_target_: evosax.algorithms.Open_ES
+population_size: 64

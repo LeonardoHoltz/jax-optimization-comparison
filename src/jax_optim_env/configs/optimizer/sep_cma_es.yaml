@@ -1,0 +1,5 @@
+# Diagonal-covariance CMA-ES: O(D) memory instead of full CMA-ES's O(D^2).
+# Needed for models with large parameter counts (e.g. mlp_california has ~235K params;
+# full CMA_ES would need a 235179x235179 covariance matrix, ~220GB).
+_target_: evosax.algorithms.Sep_CMA_ES
+population_size: 64

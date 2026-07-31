@@ -6,7 +6,7 @@ import numpy as np
 import jax.numpy as jnp
 
 class DataModule:
-    def __init__(self, name, num_features, num_classes, root, val_split, batch_size, seed):
+    def __init__(self, name, num_features, num_classes, root, val_split, batch_size, seed, normalize=False):
         self.logger = logging.getLogger()
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
@@ -16,11 +16,21 @@ class DataModule:
         self.val_split = val_split
         self.batch_size = batch_size
         self.seed = seed
+        self.normalize = normalize
         self.resolve()
         self.split()
 
     def resolve(self):
         raise NotImplementedError
+
+    def _standardize(self, arr):
+        """Zero-mean, unit-variance standardization, matching the paper's practice of
+        standardizing features/regression targets. Fit-on-everything approximation
+        since this DataModule does not keep a held-out fit-only split."""
+        mean = arr.mean(axis=0)
+        std = arr.std(axis=0)
+        std = np.where(std < 1e-8, 1.0, std)
+        return (arr - mean) / std, mean, std
     
     def split(self):
         X_train, X_val, y_train, y_val = train_test_split(

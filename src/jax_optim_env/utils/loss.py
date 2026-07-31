@@ -2,6 +2,8 @@ import jax.numpy as jnp
 import optax
 
 def l2_loss(pred, y):
+    if pred.ndim > y.ndim:
+        pred = pred.reshape(y.shape)
     loss = optax.l2_loss(pred, y)
     return jnp.mean(loss)
 

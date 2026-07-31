@@ -69,6 +69,12 @@ class SklearnDataModule(DataModule):
         else:
             self.y = self.y.astype(np.float32)
 
+        if self.normalize:
+            self.X, self._x_mean, self._x_std = self._standardize(self.X)
+            if self.num_classes == 0:
+                y, self._y_mean, self._y_std = self._standardize(self.y.reshape(-1, 1))
+                self.y = y.reshape(-1).astype(np.float32)
+
     def _load_dataset(self, name):
         if name in DATASET_LOADING_MAP:
             data = DATASET_LOADING_MAP[name]()
