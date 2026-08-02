@@ -12,7 +12,7 @@ EPOCHS=${EPOCHS:-200}
 GENERATIONS=${GENERATIONS:-300}
 SEED=${SEED:-0}
 GD_OPTIMIZERS=${1:-"adam,adamw,sgd"}
-ES_OPTIMIZERS=${2:-"sep_cma_es,simple_ga,particle_swarm,open_es"}
+ES_OPTIMIZERS=${2:-"sep_cma_es,simple_ga,particle_swarm,open_es,pgpe,snes,ars,differential_evolution,cr_fm_nes"}
 export HYDRA_FULL_ERROR=1
 
 echo "Starting California Housing MLP optimizer comparison..."

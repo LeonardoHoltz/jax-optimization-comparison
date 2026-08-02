@@ -1,0 +1,2 @@
+_target_: evosax.algorithms.DifferentialEvolution
+population_size: 64
