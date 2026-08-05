@@ -60,8 +60,34 @@ def test_tabm_datamodule_loads_split_npy_files(tmp_path):
 
     assert manager.X.shape == (10, 6)
     assert manager.y.shape == (10,)
-    assert manager.train_data["X"].shape[0] == 8
+    # The original train/val/test split boundaries are preserved as-is, not re-shuffled.
+    assert manager.train_data["X"].shape[0] == 6
     assert manager.val_data["X"].shape[0] == 2
+    assert manager.test_data["X"].shape[0] == 2
+
+
+def test_tabm_datamodule_test_split_is_none_when_absent(tmp_path):
+    ds_dir = tmp_path / "microsoft"
+    ds_dir.mkdir()
+
+    rng = np.random.default_rng(0)
+    for split, n in (("train", 6), ("val", 2)):
+        np.save(ds_dir / f"X_num_{split}.npy", rng.normal(size=(n, 3)).astype(np.float32))
+        np.save(ds_dir / f"Y_{split}.npy", rng.normal(size=(n,)).astype(np.float32))
+
+    manager = TabMDataModule(
+        name="microsoft",
+        num_features=3,
+        num_classes=0,
+        root=tmp_path,
+        val_split=0.2,
+        batch_size=2,
+        seed=0,
+    )
+
+    assert manager.test_data is None
+    with pytest.raises(NotImplementedError):
+        manager.get_test_ds()
 
 
 def test_tabm_datamodule_raises_when_missing(tmp_path):
