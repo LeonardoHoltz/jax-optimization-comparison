@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 import numpy as np
-from .default import DataModule, XYDataset
+from .default import DataModule
 
 class PMLBDataModule(DataModule):
     def __init__(self, *args, **kwargs):
@@ -8,12 +8,6 @@ class PMLBDataModule(DataModule):
         self.logger.info(f"PLMB Dataset {self.name} loaded. Shape info:")
         self.logger.info(f"Input data: {self.X.shape}")
         self.logger.info(f"Target data: {self.y.shape}")
-    
-    def get_train_ds(self):
-        return XYDataset(self.train_data["X"], self.train_data["y"])
-    
-    def get_val_ds(self):
-        return XYDataset(self.val_data["X"], self.val_data["y"])
 
     def get_train_loader(self, dataset):
         return DataLoader(

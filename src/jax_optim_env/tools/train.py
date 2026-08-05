@@ -3,9 +3,9 @@ from lerna.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 import logging
 
-# Regression datasets set num_classes=0 (there's no class count); models still need a
-# real output width of 1 in that case, hence dout: ${max:${dataset.num_classes},1}.
-OmegaConf.register_new_resolver("max", lambda *xs: max(xs), replace=True)
+from jax_optim_env.resolvers import register_custom_resolvers
+
+register_custom_resolvers()
 
 @lerna.main(version_base=None, config_path="../configs", config_name="sgd_exp")
 def main(config: DictConfig) -> None:

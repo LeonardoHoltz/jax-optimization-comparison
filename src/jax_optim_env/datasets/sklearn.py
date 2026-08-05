@@ -4,7 +4,7 @@ import numpy as np
 from sklearn import datasets as sk_datasets
 from torch.utils.data import DataLoader
 
-from .default import DataModule, XYDataset
+from .default import DataModule
 
 DATASET_LOADING_MAP = {
     "california_housing": lambda: sk_datasets.fetch_california_housing(),
@@ -19,12 +19,6 @@ class SklearnDataModule(DataModule):
         self.logger.info(f"Sklearn Dataset {self.name} loaded. Shape info:")
         self.logger.info(f"Input data: {self.X.shape}")
         self.logger.info(f"Target data: {self.y.shape}")
-
-    def get_train_ds(self):
-        return XYDataset(self.train_data["X"], self.train_data["y"])
-
-    def get_val_ds(self):
-        return XYDataset(self.val_data["X"], self.val_data["y"])
 
     def get_train_loader(self, dataset):
         return DataLoader(
