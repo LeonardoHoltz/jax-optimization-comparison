@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from jax_optim_env.models.linear import Linear, MLP
+from jax_optim_env.jax_env.models.linear import Linear, MLP
 
 
 def _dense_to_torch_linear(dense_params) -> nn.Linear:
@@ -20,7 +20,7 @@ def _dense_to_torch_linear(dense_params) -> nn.Linear:
 
 
 def flax_to_torch(model, params) -> nn.Module:
-    """Convert a `jax_optim_env.models.linear.Linear` or `MLP` Flax model, plus its
+    """Convert a `jax_optim_env.jax_env.models.linear.Linear` or `MLP` Flax model, plus its
     trained params, into an equivalent PyTorch `nn.Sequential` with the same
     architecture and copied weights. The returned module is in `eval()` mode.
 

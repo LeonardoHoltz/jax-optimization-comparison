@@ -1,12 +1,21 @@
 from sklearn.model_selection import train_test_split
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 from pathlib import Path
 import logging
 import numpy as np
 import jax.numpy as jnp
+import torch
 
 class DataModule:
-    def __init__(self, name, num_features, num_classes, root, val_split, batch_size, seed, normalize=False):
+    """Shared, framework-agnostic dataset/split/loading logic for both the JAX and
+    PyTorch training paths (see jax_optim_env.jax_env / jax_optim_env.torch_env) --
+    everything up to and including the DataLoader is plain numpy/pandas underneath,
+    with only the final collate step producing framework-specific tensors, so this
+    class and its subclasses (SklearnDataModule, PMLBDataModule, TabMDataModule) don't
+    need to be duplicated per framework. `framework` picks which collate_fn the
+    get_*_loader methods use."""
+
+    def __init__(self, name, num_features, num_classes, root, val_split, batch_size, seed, normalize=False, framework="jax"):
         self.logger = logging.getLogger()
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
@@ -20,6 +29,10 @@ class DataModule:
         self.train_data = None
         self.val_data = None
         self.test_data = None
+        if framework not in ("jax", "torch"):
+            raise ValueError(f"Unknown framework '{framework}', expected 'jax' or 'torch'")
+        self.framework = framework
+        self.collate_fn = self.jax_collate_fn if framework == "jax" else self.torch_collate_fn
         self.resolve()
         self.split()
 
@@ -71,20 +84,46 @@ class DataModule:
             )
         return XYDataset(self.test_data["X"], self.test_data["y"])
 
-    def get_train_loader(self):
-        raise NotImplementedError
-    def get_val_loader(self):
-        raise NotImplementedError
+    def get_train_loader(self, dataset):
+        return DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=0,
+            collate_fn=self.collate_fn,
+            drop_last=True,
+        )
 
-    def collate_fn(self, batch):
-        return batch
-    
+    def get_val_loader(self, dataset):
+        return DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=0,
+            collate_fn=self.collate_fn,
+        )
+
+    def get_test_loader(self, dataset):
+        return DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=0,
+            collate_fn=self.collate_fn,
+        )
+
     def jax_collate_fn(self, batch):
         xs, ys = zip(*batch)
         X = jnp.asarray(np.stack(xs))
         y = jnp.asarray(np.stack(ys))
         return X, y
-    
+
+    def torch_collate_fn(self, batch):
+        xs, ys = zip(*batch)
+        X = torch.from_numpy(np.stack(xs))
+        y = torch.from_numpy(np.stack(ys))
+        return X, y
+
 class XYDataset(Dataset):
     def __init__(self, X, y):
         self.X = X

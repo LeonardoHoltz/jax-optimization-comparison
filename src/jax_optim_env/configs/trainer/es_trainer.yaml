@@ -1,1 +1,1 @@
-_target_: jax_optim_env.trainers.es_trainer.ESTrainer
+_target_: jax_optim_env.jax_env.trainers.es_trainer.ESTrainer

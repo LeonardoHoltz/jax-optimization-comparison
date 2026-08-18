@@ -1,0 +1,1 @@
+_target_: jax_optim_env.torch_env.trainers.sgd_trainer.SGDTrainer

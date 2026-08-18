@@ -2,7 +2,6 @@ from pathlib import Path
 
 import numpy as np
 from sklearn import datasets as sk_datasets
-from torch.utils.data import DataLoader
 
 from .default import DataModule
 
@@ -19,25 +18,6 @@ class SklearnDataModule(DataModule):
         self.logger.info(f"Sklearn Dataset {self.name} loaded. Shape info:")
         self.logger.info(f"Input data: {self.X.shape}")
         self.logger.info(f"Target data: {self.y.shape}")
-
-    def get_train_loader(self, dataset):
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=0,
-            collate_fn=self.jax_collate_fn,
-            drop_last=True,
-        )
-
-    def get_val_loader(self, dataset):
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=self.jax_collate_fn,
-        )
 
     def resolve(self):
         ds_dir = self.root / self.name

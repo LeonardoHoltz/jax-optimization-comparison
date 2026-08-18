@@ -1,0 +1,2 @@
+_target_: jax_optim_env.torch_env.utils.loss.cross_entropy_loss
+_call_: false

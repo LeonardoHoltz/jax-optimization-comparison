@@ -6,7 +6,7 @@
 # d_layers / dropout values below are the exact tuned hyperparameters (seed 0) published in
 # https://github.com/yandex-research/tabular-dl-revisiting-models/blob/main/output/california_housing/mlp/tuned/0.toml
 # which reports test RMSE = 0.4942 (paper's Table 2 average over 15 seeds: RMSE = 0.499).
-_target_: jax_optim_env.models.linear.MLP
+_target_: jax_optim_env.jax_env.models.linear.MLP
 hidden_dims: [510, 263, 363]
 dout: ${max:${dataset.num_classes},1}
 dropout: 0.1973063643675128

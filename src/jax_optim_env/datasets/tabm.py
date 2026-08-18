@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from torch.utils.data import DataLoader
 
 from .default import DataModule
 
@@ -20,34 +19,6 @@ class TabMDataModule(DataModule):
         self.logger.info(f"Train: {self.train_data['X'].shape}, Val: {self.val_data['X'].shape}")
         if self.test_data is not None:
             self.logger.info(f"Test: {self.test_data['X'].shape}")
-
-    def get_test_loader(self, dataset):
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=self.jax_collate_fn,
-        )
-
-    def get_train_loader(self, dataset):
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=0,
-            collate_fn=self.jax_collate_fn,
-            drop_last=True,
-        )
-
-    def get_val_loader(self, dataset):
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=self.jax_collate_fn,
-        )
 
     def resolve(self):
         ds_dir = self.root / self.name

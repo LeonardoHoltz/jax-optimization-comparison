@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import torch
 
-from jax_optim_env.models.linear import Linear, MLP
+from jax_optim_env.jax_env.models.linear import Linear, MLP
 from jax_optim_env.utils.torch_export import flax_to_torch
 
 
