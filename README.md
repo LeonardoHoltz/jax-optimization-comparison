@@ -1,4 +1,4 @@
-# JAX Optimization Comparison (`jax-optim-env`)
+# JAX Optimization Comparison (`optim-env`)
 
 A research-oriented framework for benchmarking and comparing stochastic gradient-based optimization (SGD) with Evolutionary Strategies (ES) using the power of **JAX**.
 

@@ -12,6 +12,12 @@ hooks: []
 learning_rate: 0.001304086404538407
 generations: 300
 eval_every_gen: 10
+# Hyperparameter-optimization hooks (see ESTrainer.prepare_model / tools/hpo.py). Defaults
+# below reproduce the plain, non-HPO behavior: init_std_multiplier=1.0 keeps the
+# model-matched scale as-is, and es_learning_rate=1e-3 matches evosax's own default for
+# algorithms with an internal optimizer (Open_ES, PGPE, SNES, ARS; ignored otherwise).
+init_std_multiplier: 1.0
+es_learning_rate: 0.001
 
 defaults:
   - trainer: jax/es_trainer

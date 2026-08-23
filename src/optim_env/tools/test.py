@@ -82,34 +82,38 @@ def evaluate_run(run_dir: Path) -> dict | None:
         log.warning(f"Skipping {run_dir}: missing {checkpoint_path.name}")
         return None
 
+    # Broad on purpose: this aggregates across whatever historical run directories a glob
+    # happens to match, some of which may predate a later module rename/reorg (their saved
+    # .hydra/config.yaml then points at code that no longer exists) or otherwise no longer
+    # be loadable. One bad directory should be skipped, not crash the whole batch.
     try:
         dataset = instantiate(cfg.dataset)
         test_ds = dataset.get_test_ds()
-    except NotImplementedError as e:
-        log.warning(f"Skipping {run_dir}: {e}")
+
+        X_test, y_test = test_ds.X, test_ds.y
+        model = instantiate(cfg.model)
+        preds = _predict_torch(cfg, model, X_test) if is_torch else _predict_jax(cfg, model, X_test)
+
+        is_classification = bool(cfg.dataset.num_classes and cfg.dataset.num_classes > 0)
+        row = {
+            "exp_name": cfg.exp_name,
+            "trainer": cfg.trainer._target_.rsplit(".", 1)[-1],
+            "optimizer": cfg.optimizer._target_,
+            "dataset": cfg.dataset.name,
+            "seed": cfg.seed,
+            "n_test": X_test.shape[0],
+        }
+        if is_classification:
+            row["accuracy"] = float((preds.argmax(axis=-1) == y_test).mean())
+        else:
+            if preds.ndim > y_test.ndim:
+                preds = preds.reshape(y_test.shape)
+            test_mse = float(((preds - y_test) ** 2).mean())
+            row["mse"] = test_mse
+            row["rmse"] = test_mse**0.5
+    except Exception as e:
+        log.warning(f"Skipping {run_dir}: {type(e).__name__}: {e}")
         return None
-
-    X_test, y_test = test_ds.X, test_ds.y
-    model = instantiate(cfg.model)
-    preds = _predict_torch(cfg, model, X_test) if is_torch else _predict_jax(cfg, model, X_test)
-
-    is_classification = bool(cfg.dataset.num_classes and cfg.dataset.num_classes > 0)
-    row = {
-        "exp_name": cfg.exp_name,
-        "trainer": cfg.trainer._target_.rsplit(".", 1)[-1],
-        "optimizer": cfg.optimizer._target_,
-        "dataset": cfg.dataset.name,
-        "seed": cfg.seed,
-        "n_test": X_test.shape[0],
-    }
-    if is_classification:
-        row["accuracy"] = float((preds.argmax(axis=-1) == y_test).mean())
-    else:
-        if preds.ndim > y_test.ndim:
-            preds = preds.reshape(y_test.shape)
-        test_mse = float(((preds - y_test) ** 2).mean())
-        row["mse"] = test_mse
-        row["rmse"] = test_mse**0.5
 
     log.info(f"{row['exp_name']}: {row}")
     return row

@@ -1,5 +1,6 @@
 from lerna.utils import instantiate, get_class
 import inspect
+import json
 import logging
 import os
 import jax
@@ -122,6 +123,12 @@ class ESTrainer:
         save_checkpoint(best_params, checkpoint_path)
         self.logger.info(f"Final best model saved to {checkpoint_path}")
 
+        # Structured, easily-parseable result for tooling (e.g. tools/hpo.py) that needs
+        # this run's outcome without scraping the text log.
+        metrics_path = os.path.join(self.cfg.save_path, "metrics.json")
+        with open(metrics_path, "w") as f:
+            json.dump({"best_val_loss": self.best_fitness, "generations": self.cfg.generations}, f)
+
         self.writer.close()
 
     def evaluate(self):
@@ -198,7 +205,11 @@ class ESTrainer:
         # population-based, already needed further down for the ask/tell API differences)
         # plus generic introspection (hasattr/inspect.signature), not on specific algorithm
         # class names, so this works uniformly for any current or future evosax algorithm.
-        init_std = float(jnp.std(solution))
+        # init_std_multiplier is a hyperparameter-optimization hook: 1.0 keeps exactly the
+        # model-matched scale derived above, but HPO (see tools/hpo.py) can search around
+        # it, since the "correctly matched" scale is still just a heuristic, not
+        # necessarily the optimum for a given algorithm/dataset.
+        init_std = float(jnp.std(solution)) * float(self.cfg.get("init_std_multiplier", 1.0))
         self.logger.info(f"ES init_std (matched to model's own weight scale): {init_std:.6g}")
 
         # Case 1 -- constructor-level `std_schedule` (e.g. SimpleGA, Open_ES).
@@ -233,14 +244,23 @@ class ESTrainer:
         # optax.sgd(learning_rate=1e-3)), so std should just stay constant at the model-matched
         # scale, exactly like Case 2 below does via std_init.
         strategy_cls = get_class(self.cfg.optimizer._target_)
+        strategy_init_params = inspect.signature(strategy_cls.__init__).parameters
         strategy_kwargs = {"population_size": self.cfg.optimizer.population_size, "solution": solution}
-        if "std_schedule" in inspect.signature(strategy_cls.__init__).parameters:
+        if "std_schedule" in strategy_init_params:
             if issubclass(strategy_cls, PopulationBasedAlgorithm):
                 strategy_kwargs["std_schedule"] = optax.exponential_decay(
                     init_value=init_std, transition_steps=20, decay_rate=0.01, end_value=init_std * 0.01
                 )
             else:
                 strategy_kwargs["std_schedule"] = optax.constant_schedule(init_std)
+        # Another hyperparameter-optimization hook: algorithms that estimate a gradient
+        # from the population (Open_ES, PGPE, SNES, ARS) take that estimate's actual step
+        # via an internal optax optimizer, constructed here rather than left at evosax's
+        # hardcoded default of optax.sgd(learning_rate=1e-3) -- exposed generically via
+        # the same inspect.signature check, not by naming these classes individually.
+        if "optimizer" in strategy_init_params:
+            es_lr = float(self.cfg.get("es_learning_rate", 1e-3))
+            strategy_kwargs["optimizer"] = optax.sgd(learning_rate=es_lr)
         self.strategy = strategy_cls(**strategy_kwargs)
 
         self.params = self.strategy.default_params
