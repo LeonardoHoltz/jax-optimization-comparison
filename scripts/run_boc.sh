@@ -11,13 +11,13 @@ echo "Starting Baseline Optimization Comparison (BOC) with $GENS iterations..."
 # 1. Mushroom Dataset
 echo "=> Running Mushroom Matrix..."
 pixi run python src/jax_optim_env/tools/train.py --config-name sgd_exp dataset=pmlb_mushroom epochs=$GENS eval_every=$EVAL_FREQ
-pixi run python src/jax_optim_env/tools/train.py --config-name es_exp dataset=pmlb_mushroom generations=$GENS eval_every_gen=$EVAL_FREQ optimizer=cma_es
-pixi run python src/jax_optim_env/tools/train.py --config-name es_exp dataset=pmlb_mushroom generations=$GENS eval_every_gen=$EVAL_FREQ optimizer=simple_ga
+pixi run python src/jax_optim_env/tools/train.py --config-name es_exp dataset=pmlb_mushroom generations=$GENS eval_every_gen=$EVAL_FREQ optimizer=jax/cma_es
+pixi run python src/jax_optim_env/tools/train.py --config-name es_exp dataset=pmlb_mushroom generations=$GENS eval_every_gen=$EVAL_FREQ optimizer=jax/simple_ga
 
 # 2. Penguins Dataset
 echo "=> Running Penguins Matrix..."
 pixi run python src/jax_optim_env/tools/train.py --config-name sgd_exp dataset=pmlb_penguins epochs=$GENS eval_every=$EVAL_FREQ
-pixi run python src/jax_optim_env/tools/train.py --config-name es_exp dataset=pmlb_penguins generations=$GENS eval_every_gen=$EVAL_FREQ optimizer=cma_es
-pixi run python src/jax_optim_env/tools/train.py --config-name es_exp dataset=pmlb_penguins generations=$GENS eval_every_gen=$EVAL_FREQ optimizer=simple_ga
+pixi run python src/jax_optim_env/tools/train.py --config-name es_exp dataset=pmlb_penguins generations=$GENS eval_every_gen=$EVAL_FREQ optimizer=jax/cma_es
+pixi run python src/jax_optim_env/tools/train.py --config-name es_exp dataset=pmlb_penguins generations=$GENS eval_every_gen=$EVAL_FREQ optimizer=jax/simple_ga
 
 echo "BOC Complete."

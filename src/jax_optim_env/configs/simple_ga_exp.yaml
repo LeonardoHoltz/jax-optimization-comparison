@@ -1,4 +1,4 @@
-exp_name: NE_${optimizer._target_}_${dataset.name}
+exp_name: jax_NE_${basename:${optimizer._target_}}_${dataset.name}
 save_path: outputs/${exp_name}
 seed: 42
 hooks: []
@@ -7,11 +7,11 @@ generations: 100
 eval_every_gen: 10
 
 defaults:
-  - trainer: es_trainer
+  - trainer: jax/es_trainer
   - dataset: pmlb_mushroom
-  - model: linear
-  - optimizer: simple_ga
-  - loss: cross_entropy
+  - model: jax/linear
+  - optimizer: jax/simple_ga
+  - loss: jax/cross_entropy
   - _self_
 
 hydra:

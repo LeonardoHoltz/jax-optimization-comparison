@@ -5,7 +5,7 @@
 # Default optimizer is sep_cma_es (diagonal-covariance CMA-ES), not the full-covariance
 # cma_es used elsewhere in this repo: mlp_california has ~235K parameters, and full CMA-ES's
 # O(D^2) covariance matrix would need ~220GB at that dimensionality.
-exp_name: "NE_${optimizer._target_}_california"
+exp_name: "jax_NE_${basename:${optimizer._target_}}_california"
 save_path: outputs/${exp_name}
 seed: 0
 hooks: []
@@ -14,11 +14,11 @@ generations: 300
 eval_every_gen: 10
 
 defaults:
-  - trainer: es_trainer
+  - trainer: jax/es_trainer
   - dataset: tabm_california
-  - model: mlp_california
-  - optimizer: sep_cma_es
-  - loss: mse
+  - model: jax/mlp_california
+  - optimizer: jax/sep_cma_es
+  - loss: jax/mse
   - _self_
 
 hydra:

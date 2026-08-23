@@ -1,9 +1,8 @@
-# PyTorch mirror of california_mlp_sgd_exp.yaml -- same MLP architecture and paper-tuned
-# hyperparameters (see model/mlp_california.yaml for the source/citation), trained with
-# native PyTorch (torch.optim, jax_optim_env.torch_env.trainers.sgd_trainer.SGDTrainer)
-# instead of JAX/Flax/optax. dataset.framework: torch below is what makes the shared
-# DataModule hand out torch tensors instead of jax arrays (see datasets/default.py).
-exp_name: "TORCH_${optimizer._target_}_california"
+# Same MLP architecture and paper-tuned hyperparameters as california_mlp_sgd_exp.yaml
+# (see model/jax/mlp_california.yaml for the source/citation). dataset.framework: torch
+# below is what makes the shared DataModule hand out torch tensors instead of jax arrays
+# (see datasets/default.py).
+exp_name: "torch_SGD_${basename:${optimizer._target_}}_california"
 save_path: outputs/${exp_name}
 seed: 0
 hooks: []
@@ -13,11 +12,11 @@ epochs: 200
 eval_every: 1
 
 defaults:
-  - trainer: torch_sgd_trainer
+  - trainer: torch/sgd_trainer
   - dataset: tabm_california
-  - model: torch_mlp_california
-  - optimizer: torch_adamw
-  - loss: torch_mse
+  - model: torch/mlp_california
+  - optimizer: torch/adamw
+  - loss: torch/mse
   - _self_
 
 dataset:

@@ -1,8 +1,8 @@
 # Reproduces (in JAX) the MLP baseline trained on California Housing from
 # Gorishniy et al. (2021), "Revisiting Deep Learning Models for Tabular Data",
 # using gradient-based optimizers. Default hyperparameters below are the paper's
-# tuned values for AdamW (see model/mlp_california.yaml for the source).
-exp_name: "SGD_${optimizer._target_}_california"
+# tuned values for AdamW (see model/jax/mlp_california.yaml for the source).
+exp_name: "jax_SGD_${basename:${optimizer._target_}}_california"
 save_path: outputs/${exp_name}
 seed: 0
 hooks: []
@@ -12,11 +12,11 @@ epochs: 200
 eval_every: 1
 
 defaults:
-  - trainer: sgd_trainer
+  - trainer: jax/sgd_trainer
   - dataset: tabm_california
-  - model: mlp_california
-  - optimizer: adamw
-  - loss: mse
+  - model: jax/mlp_california
+  - optimizer: jax/adamw
+  - loss: jax/mse
   - _self_
 
 hydra:
