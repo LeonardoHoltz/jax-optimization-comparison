@@ -12,7 +12,7 @@ echo "Starting seed multirun experiment..."
 
 # Penguins Dataset
 echo "=> Running trainings..."
-pixi run python src/jax_optim_env/tools/train.py --config-name sgd_exp --multirun \
+pixi run python src/optim_env/tools/train.py --config-name sgd_exp --multirun \
     exp_name=$EXP_NAME dataset=pmlb_penguins epochs=$GENS \
     model=$MODEL seed=$SEEDS
 

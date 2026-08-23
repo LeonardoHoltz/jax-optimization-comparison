@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 import numpy as np
-from jax_optim_env.utils.metrics import accuracy, mse, mae
+from optim_env.utils.metrics import accuracy, mse, mae
 
 def test_accuracy():
     logits = jnp.array([

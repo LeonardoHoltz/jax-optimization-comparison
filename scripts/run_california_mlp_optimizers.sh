@@ -18,11 +18,11 @@ export HYDRA_FULL_ERROR=1
 echo "Starting California Housing MLP optimizer comparison..."
 
 echo "=> Running gradient-based (optax) trainings: $GD_OPTIMIZERS"
-pixi run python src/jax_optim_env/tools/train.py --config-name california_mlp_sgd_exp --multirun \
+pixi run python src/optim_env/tools/train.py --config-name california_mlp_sgd_exp --multirun \
     optimizer=$GD_OPTIMIZERS epochs=$EPOCHS seed=$SEED
 
 echo "=> Running evolutionary-strategy (evosax) trainings: $ES_OPTIMIZERS"
-pixi run python src/jax_optim_env/tools/train.py --config-name california_mlp_es_exp --multirun \
+pixi run python src/optim_env/tools/train.py --config-name california_mlp_es_exp --multirun \
     optimizer=$ES_OPTIMIZERS generations=$GENERATIONS seed=$SEED
 
 echo "California Housing MLP optimizer comparison complete. See outputs/jax_SGD_*_california and outputs/jax_NE_*_california."

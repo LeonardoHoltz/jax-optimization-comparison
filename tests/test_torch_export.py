@@ -3,8 +3,8 @@ import jax.numpy as jnp
 import numpy as np
 import torch
 
-from jax_optim_env.jax_env.models.linear import Linear, MLP
-from jax_optim_env.utils.torch_export import flax_to_torch
+from optim_env.jax_env.models.linear import Linear, MLP
+from optim_env.utils.torch_export import flax_to_torch
 
 
 def test_flax_to_torch_linear_matches_output():

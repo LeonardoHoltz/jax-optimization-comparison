@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 import os
-from jax_optim_env.utils.checkpointing import save_checkpoint, load_checkpoint
+from optim_env.utils.checkpointing import save_checkpoint, load_checkpoint
 
 def test_checkpointing():
     state = {

@@ -1,0 +1,2 @@
+_target_: optim_env.jax_env.models.linear.Linear
+dout: ${max:${dataset.num_classes},1}

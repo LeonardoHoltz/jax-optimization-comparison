@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from jax_optim_env.datasets.pmlb import PMLBDataModule
-from jax_optim_env.datasets.sklearn import SklearnDataModule
-from jax_optim_env.datasets.tabm import TabMDataModule
+from optim_env.datasets.pmlb import PMLBDataModule
+from optim_env.datasets.sklearn import SklearnDataModule
+from optim_env.datasets.tabm import TabMDataModule
 
 
 def test_sklearn_dataset_manager_loads_california_housing(tmp_path):

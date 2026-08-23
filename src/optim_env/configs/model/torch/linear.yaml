@@ -1,0 +1,3 @@
+_target_: optim_env.torch_env.models.linear.Linear
+din: ${dataset.num_features}
+dout: ${max:${dataset.num_classes},1}

@@ -12,7 +12,7 @@ echo "Starting pop size multirun experiment..."
 
 # Penguins Dataset
 echo "=> Running trainings..."
-pixi run python src/jax_optim_env/tools/train.py --config-name simple_ga_exp --multirun \
+pixi run python src/optim_env/tools/train.py --config-name simple_ga_exp --multirun \
     exp_name=$EXP_NAME dataset=pmlb_penguins generations=$GENS \
     model=$MODEL optimizer.population_size=$POP_SIZES
 

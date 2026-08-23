@@ -1,0 +1,3 @@
+_target_: optim_env.jax_env.models.linear.MLP
+hidden_dims: [5, 5]
+dout: ${max:${dataset.num_classes},1}

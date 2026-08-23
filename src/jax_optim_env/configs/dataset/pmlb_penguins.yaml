@@ -1,8 +1,0 @@
-_target_: jax_optim_env.datasets.pmlb.PMLBDataModule
-name: penguins
-num_features: 7
-num_classes: 3
-root: data/pmlb
-val_split: 0.8
-batch_size: 32
-seed: ${seed}

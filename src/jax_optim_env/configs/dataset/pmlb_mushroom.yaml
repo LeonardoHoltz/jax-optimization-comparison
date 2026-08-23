@@ -1,8 +1,0 @@
-_target_: jax_optim_env.datasets.pmlb.PMLBDataModule
-name: mushroom
-num_features: 22
-num_classes: 2
-root: data/pmlb
-val_split: 0.8
-batch_size: 32
-seed: ${seed}

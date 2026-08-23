@@ -40,10 +40,10 @@ It's possible to run specific experiments using the training tools:
 
 ```bash
 # Train using SGD (Adam) on Mushroom
-pixi run python src/jax_optim_env/tools/train.py --config-name sgd_exp dataset=pmlb_mushroom
+pixi run python src/optim_env/tools/train.py --config-name sgd_exp dataset=pmlb_mushroom
 
 # Train using CMA-ES on Penguins
-pixi run python src/jax_optim_env/tools/train.py --config-name es_exp dataset=pmlb_penguins optimizer=cma_es
+pixi run python src/optim_env/tools/train.py --config-name es_exp dataset=pmlb_penguins optimizer=cma_es
 ```
 
 ### Downloading Datasets
@@ -51,19 +51,19 @@ Datasets that don't ship with a Python library (PMLB, Hugging Face) must be down
 
 ```bash
 # PMLB
-pixi run python -m jax_optim_env.prepare_dataset.pmlb_dataset --name mushroom --root data/pmlb
+pixi run python -m optim_env.prepare_dataset.pmlb_dataset --name mushroom --root data/pmlb
 
 # Hugging Face (e.g. the TabM benchmark datasets from https://github.com/yandex-research/tabular-dl-optimizers,
 # mirrored at https://huggingface.co/datasets/rototoHF/tabm-data)
-pixi run python -m jax_optim_env.prepare_dataset.huggingface --repo-id rototoHF/tabm-data --name adult --root data/tabm
-pixi run python -m jax_optim_env.prepare_dataset.huggingface --repo-id rototoHF/tabm-data --name microsoft --root data/tabm
+pixi run python -m optim_env.prepare_dataset.huggingface --repo-id rototoHF/tabm-data --name adult --root data/tabm
+pixi run python -m optim_env.prepare_dataset.huggingface --repo-id rototoHF/tabm-data --name microsoft --root data/tabm
 
 # Train on a downloaded TabM dataset
-pixi run python src/jax_optim_env/tools/train.py --config-name sgd_exp dataset=tabm_adult
-pixi run python src/jax_optim_env/tools/train.py --config-name sgd_exp dataset=tabm_microsoft loss=mse
+pixi run python src/optim_env/tools/train.py --config-name sgd_exp dataset=tabm_adult
+pixi run python src/optim_env/tools/train.py --config-name sgd_exp dataset=tabm_microsoft loss=mse
 ```
 
-`jax_optim_env.prepare_dataset.kaggle` is also available for any future Kaggle-backed dataset (`--dataset <kaggle-slug> --name <name> --root <root>`), though none of the current dataset configs use it — the TabM mirror already covers datasets like Adult.
+`optim_env.prepare_dataset.kaggle` is also available for any future Kaggle-backed dataset (`--dataset <kaggle-slug> --name <name> --root <root>`), though none of the current dataset configs use it — the TabM mirror already covers datasets like Adult.
 
 sklearn-backed datasets need no download step — they're fetched on first use by `scikit-learn` itself.
 
@@ -76,10 +76,10 @@ pixi run tensorboard --logdir outputs
 
 ## 📂 Project Structure
 
-- `src/jax_optim_env/trainers/`: Core logic for ES and SGD training loops.
-- `src/jax_optim_env/configs/`: Hydra configurations for models, datasets, and optimizers.
-- `src/jax_optim_env/datasets/`: DataModules (PMLB, Hugging Face/TabM, sklearn).
-- `src/jax_optim_env/prepare_dataset/`: CLI scripts to download datasets to disk before training.
-- `src/jax_optim_env/tools/`: Entry point scripts for training.
+- `src/optim_env/trainers/`: Core logic for ES and SGD training loops.
+- `src/optim_env/configs/`: Hydra configurations for models, datasets, and optimizers.
+- `src/optim_env/datasets/`: DataModules (PMLB, Hugging Face/TabM, sklearn).
+- `src/optim_env/prepare_dataset/`: CLI scripts to download datasets to disk before training.
+- `src/optim_env/tools/`: Entry point scripts for training.
 - `scripts/`: Automation scripts (like `run_boc.sh`).
 - `tests/`: Unit tests for metrics and checkpointing.

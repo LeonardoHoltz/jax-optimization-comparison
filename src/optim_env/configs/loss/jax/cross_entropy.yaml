@@ -1,0 +1,2 @@
+_target_: optim_env.utils.loss.cross_entropy_loss
+_call_: false
