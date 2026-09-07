@@ -2,8 +2,8 @@
 # (see model/jax/mlp_california.yaml for the source/citation). dataset.framework: torch
 # below is what makes the shared DataModule hand out torch tensors instead of jax arrays
 # (see datasets/default.py).
-exp_name: "torch_SGD_${basename:${optimizer._target_}}_california"
-save_path: outputs/${exp_name}
+framework: torch
+method: SGD
 seed: 0
 hooks: []
 learning_rate: 0.001304086404538407
@@ -12,6 +12,7 @@ epochs: 200
 eval_every: 1
 
 defaults:
+  - base/run_layout
   - trainer: torch/sgd_trainer
   - dataset: tabm_california
   - model: torch/mlp_california
@@ -21,14 +22,4 @@ defaults:
 
 dataset:
   framework: torch
-
-hydra:
-  job:
-    name: ${exp_name}
-  run:
-    dir: outputs/${exp_name}
-  # Multirun setup for optimizers/seeds
-  sweep:
-    dir: outputs/${exp_name}
-    subdir: "."
-  # It is recommended to sweep parameters through the scripts or command line
+# It is recommended to sweep parameters through the scripts or command line

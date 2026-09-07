@@ -1,5 +1,5 @@
-exp_name: "jax_SGD_${basename:${optimizer._target_}}_${dataset.name}"
-save_path: outputs/${exp_name}
+framework: jax
+method: SGD
 seed: 42
 hooks: []
 learning_rate: 0.001
@@ -7,21 +7,11 @@ epochs: 100
 eval_every: 1
 
 defaults:
+  - base/run_layout
   - trainer: jax/sgd_trainer
   - dataset: pmlb_mushroom
   - model: jax/linear
   - optimizer: jax/adam
   - loss: jax/cross_entropy
   - _self_
-
-
-hydra:
-  job:
-    name: ${exp_name}
-  run:
-    dir: outputs/${exp_name}
-  # Multirun setup for seeds
-  sweep:
-    dir: outputs/${exp_name}
-    subdir: "."
-  # It is recommended to sweep parameters through the scripts or command line
+# It is recommended to sweep parameters through the scripts or command line

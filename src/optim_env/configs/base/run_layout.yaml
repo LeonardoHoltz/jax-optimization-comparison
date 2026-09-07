@@ -1,0 +1,31 @@
+# @package _global_
+# Shared output layout for every experiment config. Runs land in a structured tree:
+#
+#   outputs/runs/<dataset>/<framework>_<method>/<algorithm>/<variant>/seed_<n>/
+#
+# `framework` (jax/torch) and `method` (SGD/NE) are set by each experiment config.
+# `algorithm` comes from the optimizer's class name -- resolved from _target_ rather than
+# the Hydra config-group choice so it still resolves when a saved config is re-loaded
+# outside an active Hydra run (tools/test.py does exactly that).
+# `variant` separates a plain run ("baseline") from a tuned one ("hpo"); tools/hpo.py
+# overrides it for its final confirmation run.
+algorithm: ${basename:${optimizer._target_}}
+variant: baseline
+run_rel: runs/${dataset.name}/${framework}_${method}/${algorithm}/${variant}/seed_${seed}
+run_dir: outputs/${run_rel}
+exp_name: ${framework}_${method}_${algorithm}_${variant}_${dataset.name}
+save_path: ${run_dir}
+
+hydra:
+  job:
+    name: ${exp_name}
+  run:
+    dir: ${run_dir}
+  # In multirun, Hydra resolves sweep.dir ONCE (with unswept defaults) but sweep.subdir
+  # per job. Putting the varying path in subdir is what keeps each job in its own
+  # directory; putting it in sweep.dir instead would also work per-job, but Hydra would
+  # additionally drop its sweep-level multirun.yaml at the default-resolved path, leaving
+  # a stray directory that looks like a run but isn't.
+  sweep:
+    dir: outputs
+    subdir: ${run_rel}

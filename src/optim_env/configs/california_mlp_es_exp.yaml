@@ -5,8 +5,8 @@
 # Default optimizer is sep_cma_es (diagonal-covariance CMA-ES), not the full-covariance
 # cma_es used elsewhere in this repo: mlp_california has ~235K parameters, and full CMA-ES's
 # O(D^2) covariance matrix would need ~220GB at that dimensionality.
-exp_name: "jax_NE_${basename:${optimizer._target_}}_california"
-save_path: outputs/${exp_name}
+framework: jax
+method: NE
 seed: 0
 hooks: []
 learning_rate: 0.001304086404538407
@@ -20,20 +20,11 @@ init_std_multiplier: 1.0
 es_learning_rate: 0.001
 
 defaults:
+  - base/run_layout
   - trainer: jax/es_trainer
   - dataset: tabm_california
   - model: jax/mlp_california
   - optimizer: jax/sep_cma_es
   - loss: jax/mse
   - _self_
-
-hydra:
-  job:
-    name: ${exp_name}
-  run:
-    dir: outputs/${exp_name}
-  # Multirun setup for optimizers/seeds
-  sweep:
-    dir: outputs/${exp_name}
-    subdir: "."
-  # It is recommended to sweep parameters through the scripts or command line
+# It is recommended to sweep parameters through the scripts or command line

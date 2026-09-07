@@ -1,11 +1,15 @@
 """Evaluate trained checkpoints (JAX or PyTorch) on their dataset's held-out TEST split
-(not train/val), reconstructing each run from the exact Hydra config it was trained
-with (saved at outputs/<exp_name>/.hydra/config.yaml), and aggregate the results across
-multiple runs/optimizers/frameworks into a single CSV under outputs/tests/.
+(not train/val), reconstructing each run from the exact Hydra config it was trained with
+(its .hydra/config.yaml), and aggregate across runs/optimizers/frameworks/seeds into
+outputs/reports/.
+
+Writes two files per campaign: <campaign>.csv with one row per run (per seed), and
+<campaign>_summary.csv aggregated over seeds (mean/std per algorithm+variant).
 
 Usage:
-    pixi run python src/optim_env/tools/test.py "outputs/*california*"
-    pixi run python src/optim_env/tools/test.py "outputs/*california*" --csv-name california_test_results.csv
+    pixi run python src/optim_env/tools/test.py                       # every run in outputs/runs
+    pixi run python src/optim_env/tools/test.py 'outputs/runs/california/jax_NE/*/*/seed_*' \\
+        --campaign california_ne_hpo
 """
 
 import argparse
@@ -14,9 +18,10 @@ import glob
 import logging
 from pathlib import Path
 
-from lerna.utils import instantiate
 from omegaconf import OmegaConf
 
+from optim_env.analysis.loading import load_dataset, load_run, predict
+from optim_env.paths import REPORTS
 from optim_env.resolvers import register_custom_resolvers
 
 register_custom_resolvers()
@@ -24,49 +29,8 @@ register_custom_resolvers()
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("test")
 
-CSV_FIELDS = ["exp_name", "trainer", "optimizer", "dataset", "seed", "n_test", "mse", "rmse", "accuracy"]
-
-
-def _predict_jax(cfg, model, X_test):
-    import jax
-    import jax.numpy as jnp
-    from flax.training import train_state
-
-    from optim_env.utils.checkpointing import load_checkpoint
-
-    checkpoint_path = Path(cfg.save_path) / "best_model.msgpack"
-    rng = jax.random.PRNGKey(0)  # only used to build a matching pytree shape/structure
-    dummy_x = jnp.zeros((1, X_test.shape[1]))
-
-    # Reconstructs a template matching how each trainer actually saves its checkpoint,
-    # then deserializes into it. SGDTrainer saves the full TrainState (params +
-    # opt_state); ESTrainer saves just the model params directly (see their fit()).
-    trainer_target = cfg.trainer._target_
-    if trainer_target.endswith("SGDTrainer"):
-        template = train_state.TrainState.create(
-            apply_fn=model.apply,
-            params=model.init(rng, dummy_x),
-            tx=instantiate(cfg.optimizer),
-        )
-        params = load_checkpoint(template, checkpoint_path).params
-    elif trainer_target.endswith("ESTrainer"):
-        params = load_checkpoint(model.init(rng, dummy_x), checkpoint_path)
-    else:
-        raise ValueError(f"Unsupported trainer for evaluation: {trainer_target}")
-
-    return model.apply(params, jnp.asarray(X_test), deterministic=True)
-
-
-def _predict_torch(cfg, model, X_test):
-    import torch
-
-    from optim_env.torch_env.utils.checkpointing import load_checkpoint
-
-    checkpoint_path = Path(cfg.save_path) / "best_model.pt"
-    model.load_state_dict(load_checkpoint(checkpoint_path))
-    model.eval()
-    with torch.no_grad():
-        return model(torch.from_numpy(X_test)).numpy()
+CSV_FIELDS = ["exp_name", "framework", "method", "algorithm", "variant", "trainer",
+              "optimizer", "dataset", "seed", "n_test", "mse", "rmse", "accuracy"]
 
 
 def evaluate_run(run_dir: Path) -> dict | None:
@@ -87,16 +51,19 @@ def evaluate_run(run_dir: Path) -> dict | None:
     # .hydra/config.yaml then points at code that no longer exists) or otherwise no longer
     # be loadable. One bad directory should be skipped, not crash the whole batch.
     try:
-        dataset = instantiate(cfg.dataset)
+        dataset = load_dataset(cfg)
         test_ds = dataset.get_test_ds()
 
         X_test, y_test = test_ds.X, test_ds.y
-        model = instantiate(cfg.model)
-        preds = _predict_torch(cfg, model, X_test) if is_torch else _predict_jax(cfg, model, X_test)
+        preds = predict(load_run(run_dir), X_test)
 
         is_classification = bool(cfg.dataset.num_classes and cfg.dataset.num_classes > 0)
         row = {
             "exp_name": cfg.exp_name,
+            "framework": cfg.get("framework", ""),
+            "method": cfg.get("method", ""),
+            "algorithm": cfg.get("algorithm", cfg.optimizer._target_.rsplit(".", 1)[-1]),
+            "variant": cfg.get("variant", ""),
             "trainer": cfg.trainer._target_.rsplit(".", 1)[-1],
             "optimizer": cfg.optimizer._target_,
             "dataset": cfg.dataset.name,
@@ -119,19 +86,40 @@ def evaluate_run(run_dir: Path) -> dict | None:
     return row
 
 
+def _write_summary(rows: list[dict], summary_path: Path) -> None:
+    """Aggregate the per-run rows across seeds: one line per
+    (dataset, framework, method, algorithm, variant) with mean/std/n_seeds of each
+    metric, so a campaign run with SEEDS="0,1,2" reports variance rather than a single
+    point estimate."""
+    import pandas as pd
+
+    df = pd.DataFrame(rows)
+    group_cols = ["dataset", "framework", "method", "algorithm", "variant"]
+    metric_cols = [c for c in ("rmse", "mse", "accuracy") if c in df.columns and df[c].notna().any()]
+
+    summary = df.groupby(group_cols, dropna=False).agg(
+        n_seeds=("seed", "nunique"),
+        **{f"{m}_{stat}": (m, stat) for m in metric_cols for stat in ("mean", "std")},
+    ).reset_index()
+    summary.to_csv(summary_path, index=False)
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
-        "run_dirs_glob", nargs="+",
-        help="One or more glob patterns for experiment output directories, e.g. 'outputs/*california*' 'outputs/*adult*'",
+        "run_dirs_glob", nargs="*", default=["outputs/runs/*/*/*/*/seed_*"],
+        help="One or more glob patterns for run directories. Defaults to every run in the "
+             "outputs/runs tree; narrow it e.g. 'outputs/runs/california/jax_NE/*/*/seed_*'.",
     )
-    parser.add_argument("--csv-name", default="test_results.csv")
-    parser.add_argument("--output-dir", default="outputs/tests")
+    parser.add_argument("--campaign", default="test_results",
+                        help="Report name; writes outputs/reports/<campaign>.csv plus a _summary.csv aggregated over seeds.")
+    parser.add_argument("--output-dir", default=str(REPORTS))
     args = parser.parse_args()
 
     run_dirs = sorted({Path(p) for pattern in args.run_dirs_glob for p in glob.glob(pattern) if Path(p).is_dir()})
     if not run_dirs:
-        raise SystemExit(f"No experiment directories matched: {args.run_dirs_glob}")
+        raise SystemExit(f"No run directories matched: {args.run_dirs_glob}")
 
     rows = [row for run_dir in run_dirs if (row := evaluate_run(run_dir)) is not None]
     if not rows:
@@ -139,14 +127,17 @@ def main():
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = out_dir / args.csv_name
+    csv_path = out_dir / f"{args.campaign}.csv"
 
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
+    log.info(f"Wrote {len(rows)} per-run results to {csv_path}")
 
-    log.info(f"Wrote {len(rows)} results to {csv_path}")
+    summary_path = out_dir / f"{args.campaign}_summary.csv"
+    summary = _write_summary(rows, summary_path)
+    log.info(f"Wrote {len(summary)} aggregated rows to {summary_path}")
 
 
 if __name__ == "__main__":

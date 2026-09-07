@@ -31,23 +31,33 @@ import optuna
 from lerna.utils import get_class
 from omegaconf import OmegaConf
 
+from optim_env.paths import hpo_dir, run_dir
+
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("hpo")
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 
-def _optimizer_slug(optimizer_arg: str) -> str:
-    # e.g. "jax/sep_cma_es" -> "sep_cma_es"
-    return optimizer_arg.rsplit("/", 1)[-1]
+CONFIGS = Path(__file__).resolve().parents[1] / "configs"
+
+
+def _optimizer_target(optimizer_arg: str) -> str:
+    """The evosax class path a `--optimizer jax/sep_cma_es` argument selects."""
+    return OmegaConf.load(CONFIGS / "optimizer" / f"{optimizer_arg}.yaml")._target_
+
+
+def _algorithm_label(optimizer_arg: str) -> str:
+    """Same label configs/base/run_layout.yaml derives via
+    ${basename:${optimizer._target_}}, e.g. "jax/particle_swarm" -> "PSO", so HPO
+    artifacts and training runs agree on one name per algorithm."""
+    return _optimizer_target(optimizer_arg).rsplit(".", 1)[-1]
 
 
 def _accepts_internal_optimizer(optimizer_arg: str) -> bool:
     """Whether this evosax algorithm has an internal optax optimizer (see
     ESTrainer.prepare_model's `if "optimizer" in strategy_init_params` branch) -- if not,
     es_learning_rate would have no effect, so it's left out of the search space."""
-    cfg_path = Path(__file__).resolve().parents[1] / "configs" / "optimizer" / f"{optimizer_arg}.yaml"
-    target = OmegaConf.load(cfg_path)._target_
-    strategy_cls = get_class(target)
+    strategy_cls = get_class(_optimizer_target(optimizer_arg))
     return "optimizer" in inspect.signature(strategy_cls.__init__).parameters
 
 
@@ -72,13 +82,13 @@ def _run_trial(args, overrides: list[str], run_dir: Path) -> dict:
         return json.load(f)
 
 
-def make_objective(args, tunes_lr: bool, study_dir: Path):
+def make_objective(args, tunes_lr: bool, study_dir: Path, algorithm: str):
     def objective(trial: optuna.Trial) -> float:
         population_size = trial.suggest_int("population_size", 16, args.population_size_max, step=2)
         init_std_multiplier = trial.suggest_float("init_std_multiplier", 0.1, 3.0, log=True)
         overrides = [
             f"generations={args.hpo_generations}",
-            f"exp_name=hpo_{_optimizer_slug(args.optimizer)}_trial{trial.number}",
+            f"variant=hpo_trial{trial.number}",
             f"optimizer.population_size={population_size}",
             f"init_std_multiplier={init_std_multiplier}",
         ]
@@ -112,18 +122,19 @@ def main():
     parser.add_argument("--hpo-generations", type=int, default=100, help="Reduced generation budget per trial")
     parser.add_argument("--final-generations", type=int, default=300, help="Generation budget for the final, best-hyperparameter confirmation run")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--output-dir", default="outputs/hpo")
     args = parser.parse_args()
 
-    slug = _optimizer_slug(args.optimizer)
-    study_dir = Path(args.output_dir) / slug
+    algorithm = _algorithm_label(args.optimizer)
+    dataset_name = OmegaConf.load(CONFIGS / "dataset" / f"{args.dataset}.yaml").name
+    exp_cfg = OmegaConf.load(CONFIGS / f"{args.config_name}.yaml")
+    study_dir = hpo_dir(dataset_name, exp_cfg.framework, exp_cfg.method, algorithm)
     study_dir.mkdir(parents=True, exist_ok=True)
 
     tunes_lr = _accepts_internal_optimizer(args.optimizer)
     log.info(f"Starting HPO for optimizer={args.optimizer} ({args.n_trials} trials, es_learning_rate tuned={tunes_lr})")
 
-    study = optuna.create_study(direction="minimize", study_name=slug)
-    study.optimize(make_objective(args, tunes_lr, study_dir), n_trials=args.n_trials)
+    study = optuna.create_study(direction="minimize", study_name=algorithm)
+    study.optimize(make_objective(args, tunes_lr, study_dir, algorithm), n_trials=args.n_trials)
 
     study.trials_dataframe().to_csv(study_dir / "trials.csv", index=False)
     completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
@@ -138,26 +149,20 @@ def main():
         json.dump({"best_value": study.best_value, "best_params": study.best_params}, f, indent=2)
     log.info(f"Best trial: value={study.best_value:.4f} params={study.best_params}")
 
-    # Final confirmation run at full generation budget with the best hyperparameters found,
-    # saved as a normal experiment output (not under outputs/hpo/) so tools/test.py can
-    # evaluate it on the test set alongside the non-HPO baseline. exp_name is left as a
-    # live interpolation (resolved by train.py itself, not pre-computed here) so it uses
-    # the same ${basename:${optimizer._target_}} class-name label the baseline exp_name
-    # uses (e.g. "PSO"), rather than this script's own config-filename slug (e.g.
-    # "particle_swarm") -- the two can differ, and comparison output reads a lot easier
-    # when both rows for the same algorithm share a label. The actual output directory
-    # (final_dir below) is set independently, so it doesn't depend on that resolution.
-    final_exp_name = "jax_NE_${basename:${optimizer._target_}}_hpo_" + args.dataset
+    # Final confirmation run at full generation budget with the best hyperparameters found.
+    # It goes in the normal runs/ tree (not under outputs/hpo/, which holds search trials)
+    # as variant="hpo", so it sits right next to the "baseline" run of the same algorithm
+    # and tools/test.py picks both up for comparison.
     final_overrides = [
         f"generations={args.final_generations}",
-        f"exp_name={final_exp_name}",
+        "variant=hpo",
         f"optimizer.population_size={study.best_params['population_size']}",
         f"init_std_multiplier={study.best_params['init_std_multiplier']}",
     ]
     if tunes_lr:
         final_overrides.append(f"es_learning_rate={study.best_params['es_learning_rate']}")
 
-    final_dir = Path("outputs") / f"jax_NE_{slug}_hpo_{args.dataset}"
+    final_dir = run_dir(dataset_name, exp_cfg.framework, exp_cfg.method, algorithm, "hpo", args.seed)
     log.info(f"Running final confirmation with best hyperparameters -> {final_dir}")
     final_metrics = _run_trial(args, final_overrides, final_dir)
     if final_metrics is not None:
