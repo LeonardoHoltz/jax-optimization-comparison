@@ -1,0 +1,18 @@
+# MNIST image classification with a small CNN, trained by gradient descent (optax).
+framework: jax
+method: SGD
+seed: 0
+hooks: []
+learning_rate: 0.001
+weight_decay: 0.0001
+epochs: 10
+eval_every: 1
+
+defaults:
+  - base/run_layout
+  - trainer: jax/sgd_trainer
+  - dataset: mnist
+  - model: jax/cnn_mnist
+  - optimizer: jax/adam
+  - loss: jax/cross_entropy
+  - _self_

@@ -45,22 +45,45 @@ class ESTrainer:
         self.best_fitness = float('inf')
 
     def _compile(self):
-        def loss_fn(params):
+        # Fitness is evaluated for every population member at once (vmap), so the whole
+        # training set is only affordable for small models on tabular data. A convolutional
+        # model over tens of thousands of images needs orders of magnitude more activation
+        # memory than a tabular MLP over the same rows, so `fitness_batch_size` evaluates
+        # each generation on a random mini-batch instead. Left unset, behavior is unchanged:
+        # the full training set, as before.
+        fitness_batch_size = self.cfg.get("fitness_batch_size", None)
+        n_train = self.train_X.shape[0]
+        if fitness_batch_size is not None and fitness_batch_size < n_train:
+            batch_size = int(fitness_batch_size)
+            self.logger.info(f"ES fitness on random mini-batches of {batch_size} (train n={n_train})")
+        else:
+            batch_size = None
+
+        def loss_fn(params, X, y):
             params = self.unravel_fn(params)
             # Deterministic forward pass: dropout must be inert here since ES fitness
             # signals need to be a stable function of params, not noisy across candidates.
-            pred = self.model.apply(params, self.train_X, deterministic=True)
-            return self.loss_fn(pred, self.train_y)
+            pred = self.model.apply(params, X, deterministic=True)
+            return self.loss_fn(pred, y)
 
         def train_step(key, state):
-            key, key_ask, key_tell = jax.random.split(key, 3)
+            key, key_ask, key_tell, key_batch = jax.random.split(key, 4)
+
+            if batch_size is None:
+                X, y = self.train_X, self.train_y
+            else:
+                # One batch per generation, shared by the whole population: candidates must
+                # be ranked against each other on identical data, or the selection signal is
+                # just batch luck. Resampling across generations is what keeps it unbiased.
+                idx = jax.random.choice(key_batch, n_train, (batch_size,), replace=False)
+                X, y = self.train_X[idx], self.train_y[idx]
 
             population, state = self.strategy.ask(
                 key_ask,
                 state,
                 self.params
             )
-            fitness = jax.vmap(loss_fn)(population)
+            fitness = jax.vmap(loss_fn, in_axes=(0, None, None))(population, X, y)
             state, _ = self.strategy.tell(
                 key_tell,
                 population,
@@ -168,11 +191,13 @@ class ESTrainer:
     def prepare_dataset(self):
         dataset_manager = instantiate(self.cfg.dataset)
         self.train_ds = dataset_manager.get_train_ds()
-        self.train_X = self.train_ds.X
-        self.train_y = self.train_ds.y
+        # Device arrays, not numpy: mini-batch fitness indexes these with a traced index
+        # inside the jitted train_step, which a host-side numpy array can't support.
+        self.train_X = jnp.asarray(self.train_ds.X)
+        self.train_y = jnp.asarray(self.train_ds.y)
         self.val_ds = dataset_manager.get_val_ds()
-        self.val_X = self.val_ds.X
-        self.val_y = self.val_ds.y
+        self.val_X = jnp.asarray(self.val_ds.X)
+        self.val_y = jnp.asarray(self.val_ds.y)
 
     def prepare_model(self):
         self.model = instantiate(self.cfg.model)

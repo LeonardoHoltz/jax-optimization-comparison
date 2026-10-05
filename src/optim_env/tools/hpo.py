@@ -21,6 +21,8 @@ Usage:
 
 import argparse
 import inspect
+import re
+from collections import deque
 import json
 import logging
 import subprocess
@@ -61,7 +63,12 @@ def _accepts_internal_optimizer(optimizer_arg: str) -> bool:
     return "optimizer" in inspect.signature(strategy_cls.__init__).parameters
 
 
-def _run_trial(args, overrides: list[str], run_dir: Path) -> dict:
+# Trainers log one of these per evaluation; streaming them back is what lets Optuna
+# prune a hopeless trial instead of paying for its full generation budget.
+VAL_LINE = re.compile(r"(?:Generation|Epoch) (\d+) \| val loss=([\d.eE+-]+)")
+
+
+def _run_trial(args, overrides: list[str], run_dir: Path, trial: optuna.Trial = None) -> dict:
     cmd = [
         sys.executable, "src/optim_env/tools/train.py",
         "--config-name", args.config_name,
@@ -72,11 +79,40 @@ def _run_trial(args, overrides: list[str], run_dir: Path) -> dict:
         f"save_path={run_dir}",
         f"hydra.run.dir={run_dir}",
         *overrides,
+        # Applied last so a --set can override anything above it. These are the settings
+        # that must match the baseline runs for the comparison to mean anything (e.g.
+        # fitness_batch_size on image tasks), rather than hyperparameters being searched.
+        *args.set,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # stderr is folded into stdout so a single reader cannot deadlock on a full pipe.
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    tail = deque(maxlen=40)
+    best_so_far = float("inf")
+    pruned = False
+    for line in proc.stdout:
+        tail.append(line)
+        if trial is None:
+            continue
+        m = VAL_LINE.search(line)
+        if m is None:
+            continue
+        # Report the running best, matching what the objective ultimately returns, so the
+        # pruner compares trials on the same quantity it is optimising.
+        best_so_far = min(best_so_far, float(m.group(2)))
+        trial.report(best_so_far, int(m.group(1)))
+        if trial.should_prune():
+            pruned = True
+            proc.kill()
+            break
+    proc.wait()
+    if pruned:
+        log.info(f"Trial {trial.number} pruned at best_val_loss={best_so_far:.4f}")
+        raise optuna.TrialPruned()
+
     metrics_path = run_dir / "metrics.json"
-    if result.returncode != 0 or not metrics_path.exists():
-        log.warning(f"Trial run at {run_dir} failed (exit {result.returncode}):\n{result.stderr[-2000:]}")
+    if proc.returncode != 0 or not metrics_path.exists():
+        log.warning(f"Trial run at {run_dir} failed (exit {proc.returncode}):\n{''.join(tail)}")
         return None
     with open(metrics_path) as f:
         return json.load(f)
@@ -88,7 +124,7 @@ def make_objective(args, tunes_lr: bool, study_dir: Path, algorithm: str):
         init_std_multiplier = trial.suggest_float("init_std_multiplier", 0.1, 3.0, log=True)
         overrides = [
             f"generations={args.hpo_generations}",
-            f"variant=hpo_trial{trial.number}",
+            f"variant={args.variant}_trial{trial.number}",
             f"optimizer.population_size={population_size}",
             f"init_std_multiplier={init_std_multiplier}",
         ]
@@ -97,7 +133,7 @@ def make_objective(args, tunes_lr: bool, study_dir: Path, algorithm: str):
             overrides.append(f"es_learning_rate={es_learning_rate}")
 
         run_dir = study_dir / f"trial_{trial.number}"
-        metrics = _run_trial(args, overrides, run_dir)
+        metrics = _run_trial(args, overrides, run_dir, trial=trial)
         if metrics is None:
             raise optuna.TrialPruned()
 
@@ -119,21 +155,42 @@ def main():
                               "evaluation is vmapped over the whole population, so this is capped well "
                               "below evosax's own limits to avoid GPU OOM on larger models (population=64 "
                               "is the largest size validated across this repo's own extensive testing).")
-    parser.add_argument("--hpo-generations", type=int, default=100, help="Reduced generation budget per trial")
+    parser.add_argument("--hpo-generations", type=int, default=100, help="Generation budget per trial. Keep it close to --final-generations: "
+                             "scoring trials at a much shorter budget favours optimizers that "
+                             "plateau early over ones that keep improving. Pruning (see "
+                             "_run_trial) is what makes a long budget affordable.")
     parser.add_argument("--final-generations", type=int, default=300, help="Generation budget for the final, best-hyperparameter confirmation run")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--variant", default="hpo",
+                        help="Variant label for the final confirmation run and the study "
+                             "directory. Both are overwritten in place, so pass a throwaway "
+                             "name (e.g. --variant smoketest) when testing the machinery, or "
+                             "a real result is silently replaced.")
+    parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                        help="Extra Hydra override passed through to every trial and to the "
+                             "final run, repeatable (e.g. --set fitness_batch_size=256)")
     args = parser.parse_args()
 
     algorithm = _algorithm_label(args.optimizer)
     dataset_name = OmegaConf.load(CONFIGS / "dataset" / f"{args.dataset}.yaml").name
     exp_cfg = OmegaConf.load(CONFIGS / f"{args.config_name}.yaml")
     study_dir = hpo_dir(dataset_name, exp_cfg.framework, exp_cfg.method, algorithm)
+    if args.variant != "hpo":
+        study_dir = study_dir.parent / f"{study_dir.name}_{args.variant}"
     study_dir.mkdir(parents=True, exist_ok=True)
 
     tunes_lr = _accepts_internal_optimizer(args.optimizer)
     log.info(f"Starting HPO for optimizer={args.optimizer} ({args.n_trials} trials, es_learning_rate tuned={tunes_lr})")
 
-    study = optuna.create_study(direction="minimize", study_name=algorithm)
+    # Pruning only became possible once trials stream their intermediate validation loss
+    # (see _run_trial). It is what makes a long per-trial budget affordable: a trial that is
+    # clearly behind the others is killed rather than run to completion. The long budget in
+    # turn is what keeps the search fair to optimizers that improve slowly but do not
+    # plateau -- scoring at a short budget systematically favours early plateauers.
+    pruner = optuna.pruners.MedianPruner(
+        n_startup_trials=5, n_warmup_steps=args.hpo_generations // 4,
+    )
+    study = optuna.create_study(direction="minimize", study_name=algorithm, pruner=pruner)
     study.optimize(make_objective(args, tunes_lr, study_dir, algorithm), n_trials=args.n_trials)
 
     study.trials_dataframe().to_csv(study_dir / "trials.csv", index=False)
@@ -155,14 +212,14 @@ def main():
     # and tools/test.py picks both up for comparison.
     final_overrides = [
         f"generations={args.final_generations}",
-        "variant=hpo",
+        f"variant={args.variant}",
         f"optimizer.population_size={study.best_params['population_size']}",
         f"init_std_multiplier={study.best_params['init_std_multiplier']}",
     ]
     if tunes_lr:
         final_overrides.append(f"es_learning_rate={study.best_params['es_learning_rate']}")
 
-    final_dir = run_dir(dataset_name, exp_cfg.framework, exp_cfg.method, algorithm, "hpo", args.seed)
+    final_dir = run_dir(dataset_name, exp_cfg.framework, exp_cfg.method, algorithm, args.variant, args.seed)
     log.info(f"Running final confirmation with best hyperparameters -> {final_dir}")
     final_metrics = _run_trial(args, final_overrides, final_dir)
     if final_metrics is not None:

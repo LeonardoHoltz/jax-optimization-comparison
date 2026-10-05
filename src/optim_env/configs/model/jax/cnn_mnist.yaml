@@ -1,0 +1,8 @@
+# Small conv stack (~20K parameters). Deliberately far smaller than the tabular MLP
+# because the same architecture is also searched by evolutionary strategies, whose
+# performance degrades sharply with parameter count.
+_target_: optim_env.jax_env.models.cnn.CNN
+input_shape: [28, 28, 1]
+features: [16, 32]
+dout: ${max:${dataset.num_classes},1}
+dropout: 0.0

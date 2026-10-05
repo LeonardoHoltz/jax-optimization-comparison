@@ -1,0 +1,10 @@
+_target_: optim_env.datasets.mnist.MNISTDataModule
+name: mnist
+num_features: 784
+num_classes: 10
+root: data
+val_split: 0.0          # unused: MNIST ships fixed splits, carved in resolve()
+val_size: 10000
+batch_size: 128
+seed: ${seed}
+normalize: false        # images are scaled to [0,1] in the DataModule instead
