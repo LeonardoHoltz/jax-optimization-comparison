@@ -81,21 +81,27 @@ class SGDTrainer:
 
     def evaluate(self):
         self.model.eval()
-        losses = []
-        accs = []
+        # Batch means weighted by batch size: the last batch is usually smaller, and an
+        # unweighted mean would over-count its rows.
+        loss_sum = 0.0
+        acc_sum = 0.0
+        n = 0
+        n_acc = 0
         is_classification = self.cfg.dataset.num_classes and self.cfg.dataset.num_classes > 0
         with torch.no_grad():
             for x, y in self.val_loader:
                 x, y = x.to(self.device), y.to(self.device)
                 pred = self.model(x)
                 loss = self.loss_fn(pred, y)
-                losses.append(loss.item())
+                loss_sum += loss.item() * len(y)
+                n += len(y)
 
                 if is_classification and (y.ndim == 1 or (y.ndim == 2 and y.shape[1] > 1)):
-                    accs.append(accuracy(pred, y).item())
+                    acc_sum += accuracy(pred, y).item() * len(y)
+                    n_acc += len(y)
 
-        avg_loss = sum(losses) / len(losses)
-        avg_acc = sum(accs) / len(accs) if accs else None
+        avg_loss = loss_sum / n
+        avg_acc = acc_sum / n_acc if n_acc else None
         return avg_loss, avg_acc
 
     def prepare_dataset(self):

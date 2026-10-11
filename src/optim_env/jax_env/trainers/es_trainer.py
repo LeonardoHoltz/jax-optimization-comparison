@@ -2,19 +2,17 @@ from lerna.utils import instantiate, get_class
 import inspect
 import json
 import logging
+import math
 import os
 import jax
 import jax.numpy as jnp
 import optax
-from flax.training import train_state
 from torch.utils.tensorboard import SummaryWriter
 from lerna.core.hydra_config import HydraConfig
-import evosax
-from evosax.algorithms import CMA_ES, SimpleGA
 from evosax.algorithms.distribution_based.base import DistributionBasedAlgorithm
 from evosax.algorithms.population_based.base import PopulationBasedAlgorithm
 from jax.flatten_util import ravel_pytree
-from optim_env.utils.metrics import accuracy, mse, mae
+from optim_env.utils.metrics import accuracy
 from optim_env.utils.checkpointing import save_checkpoint
 
 # Some terminologies are a little different for evolution strategies (ES)
@@ -40,9 +38,8 @@ class ESTrainer:
         self.prepare_loss_fn()
         self.logger.info(" => Compiling JIT functions ...")
         self._compile()
-        #self.logger.info(" => Creating hooks ...")
-        #self.create_hooks()
         self.best_fitness = float('inf')
+        self.best_params = None
 
     def _compile(self):
         # Fitness is evaluated for every population member at once (vmap), so the whole
@@ -123,41 +120,40 @@ class ESTrainer:
 
             # Evaluation
             if self.gen % self.cfg.get("eval_every_gen", 10) == 0:
-                val_loss, val_acc = self.evaluate()
+                params = self._get_current_params(self.state)
+                val_loss, val_acc = self.evaluate(params)
                 self.writer.add_scalar("val/loss", val_loss, self.gen)
                 if val_acc is not None:
                     self.writer.add_scalar("val/accuracy", val_acc, self.gen)
                 
                 self.logger.info(f"Generation {self.gen} | val loss={val_loss:.4f}" + (f" accuracy={val_acc:.4f}" if val_acc is not None else ""))
 
-                # Track best model in memory
-                if val_loss < self.best_fitness:
-                    self.best_fitness = val_loss
-                    self.best_state = self.state
+                # Keep the params that scored best on validation, the same model-selection
+                # rule the SGD trainers use. Not evosax's state.best_solution: that is the
+                # lowest *training* fitness ever seen, which with fitness_batch_size is
+                # just the candidate that drew the easiest mini-batch, and is never
+                # checked against validation at all. A diverged (NaN) run still keeps its
+                # first candidate, so there is always a checkpoint to save.
+                if self.best_params is None or val_loss < self.best_fitness:
+                    self.best_fitness = float("inf") if math.isnan(val_loss) else val_loss
+                    self.best_params = params
                     self.logger.info(f"Generation {self.gen} | New best val loss: {val_loss:.4f}")
 
-        # Saved from the final training state, not self.best_state: state.best_solution
-        # (see _get_best_params) already accumulates the best individual across every single
-        # generation of the whole run, which is more complete than self.best_state's
-        # eval_every_gen-spaced sampling used for the "New best val loss" progress log above.
         checkpoint_path = os.path.join(self.cfg.save_path, "best_model.msgpack")
-        best_params_flat = self._get_best_params(self.state)
-        best_params = self.unravel_fn(best_params_flat)
-        save_checkpoint(best_params, checkpoint_path)
+        save_checkpoint(self.unravel_fn(self.best_params), checkpoint_path)
         self.logger.info(f"Final best model saved to {checkpoint_path}")
 
         # Structured, easily-parseable result for tooling (e.g. tools/hpo.py) that needs
-        # this run's outcome without scraping the text log.
+        # this run's outcome without scraping the text log. best_val_loss is the saved
+        # checkpoint's own validation loss.
         metrics_path = os.path.join(self.cfg.save_path, "metrics.json")
         with open(metrics_path, "w") as f:
             json.dump({"best_val_loss": self.best_fitness, "generations": self.cfg.generations}, f)
 
         self.writer.close()
 
-    def evaluate(self):
-        # Dynamically extract the current-generation's best parameters based on algorithm type
-        best_params_flat = self._get_current_params(self.state)
-        val_loss, logits = self.eval_step(best_params_flat, self.val_X, self.val_y)
+    def evaluate(self, params_flat):
+        val_loss, logits = self.eval_step(params_flat, self.val_X, self.val_y)
 
         val_acc = None
         is_classification = self.cfg.dataset.num_classes and self.cfg.dataset.num_classes > 0
@@ -167,26 +163,16 @@ class ESTrainer:
         return float(val_loss), val_acc
 
     def _get_current_params(self, state):
-        """Best individual as of the *current* generation, for the per-generation progress
-        metric logged during training (see `evaluate`). Distribution-based algorithms have
-        no discrete population -- their current position is the search-distribution mean,
-        which moves (and can get worse) every generation. Population-based algorithms are
-        matched to that same "current, not historical" semantics by reading the current
-        population's own best individual, using the same raw fitness values already logged
+        """Best individual as of the *current* generation, the candidate validated (and
+        possibly checkpointed) in `fit`. Distribution-based algorithms have no discrete
+        population -- their current position is the search-distribution mean, which moves
+        (and can get worse) every generation. Population-based algorithms use the current
+        population's own best individual, by the same raw fitness values already logged
         as "train fitness min" each generation (population/fitness are stored post-`tell`,
         so they're read consistently)."""
         if hasattr(state, "mean"):
             return state.mean
         return state.population[jnp.argmin(state.fitness)]
-
-    def _get_best_params(self, state):
-        """Best solution across the *entire run so far*, used for the final saved
-        checkpoint. Both algorithm categories track this internally in evosax itself
-        (`state.best_solution`/`best_fitness`, updated every single generation -- not just
-        at our eval_every_gen checkpoints -- via the same `update_best_solution_and_fitness`
-        helper shared by DistributionBasedAlgorithm.tell and PopulationBasedAlgorithm.tell),
-        so unlike `_get_current_params` there's no category-specific branching needed here."""
-        return state.best_solution
 
     def prepare_dataset(self):
         dataset_manager = instantiate(self.cfg.dataset)
@@ -336,8 +322,3 @@ class ESTrainer:
     
     def prepare_loss_fn(self):
         self.loss_fn = instantiate(self.cfg.loss)
-
-    #def create_hooks(self):
-    #    for hook_cfg in self.cfg.hooks:
-    #        hook = instantiate(hook_cfg)
-    #        self.hooks.append(hook)

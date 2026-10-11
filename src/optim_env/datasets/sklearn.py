@@ -35,8 +35,7 @@ class SklearnDataModule(DataModule):
             np.save(X_path, self.X)
             np.save(y_path, self.y)
 
-        if self.num_features is not None and self.X.shape[1] != self.num_features:
-            self.X = self._align_features(self.X, self.num_features)
+        self._check_features(self.X)
 
         if self.num_classes > 0:
             self.y = self.y.astype(np.int32)
@@ -56,22 +55,3 @@ class SklearnDataModule(DataModule):
 
         raise ValueError(f"Unsupported sklearn dataset: {name}")
 
-    def _synthetic_dataset(self, n_samples, n_features, classification):
-        rng = np.random.default_rng(0)
-        X = rng.normal(size=(n_samples, n_features)).astype(np.float32)
-        if classification:
-            y = (X[:, 0] + X[:, 1] > 0).astype(np.int32)
-        else:
-            y = (
-                2.0 * X[:, 0]
-                - 1.5 * X[:, 1]
-                + np.sin(X[:, 2])
-                + 0.1 * rng.normal(size=n_samples)
-            ).astype(np.float32)
-        return X, y
-
-    def _align_features(self, X, n_features):
-        if X.shape[1] < n_features:
-            padding = np.zeros((X.shape[0], n_features - X.shape[1]), dtype=X.dtype)
-            return np.concatenate([X, padding], axis=1)
-        return X[:, :n_features]

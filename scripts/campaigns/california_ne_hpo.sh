@@ -33,7 +33,7 @@ for OPT in "${OPTIMIZERS[@]}"; do
     $HPO --optimizer "$OPT" \
         --n-trials "$N_TRIALS" --hpo-generations "$HPO_GENERATIONS" \
         --population-size-max "$POPULATION_SIZE_MAX" \
-        --final-generations "$GENERATIONS" --seed "$HPO_SEED"
+        --final-generations "$GENERATIONS" --seed "$HPO_SEED" --final-seeds "$SEEDS"
 done
 
 section "Evaluating baseline and HPO-tuned checkpoints on the held-out test set"

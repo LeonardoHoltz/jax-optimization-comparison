@@ -73,7 +73,7 @@ for OPT in "${OPTIMIZERS[@]}"; do
     $HPO --config-name california_mlp_es_exp --dataset tabm_california --model jax/mlp_california \
         --optimizer "$OPT" --n-trials "$N_TRIALS" \
         --hpo-generations "$CAL_HPO_GENERATIONS" --final-generations "$CAL_GENERATIONS" \
-        --population-size-max "$CAL_POP_MAX" --seed "$HPO_SEED"
+        --population-size-max "$CAL_POP_MAX" --seed "$HPO_SEED" --final-seeds "$SEEDS"
 done
 
 # =========================== IMAGE =======================================================
@@ -91,7 +91,7 @@ for OPT in "${OPTIMIZERS[@]}"; do
     $HPO --config-name mnist_cnn_es_exp --dataset mnist --model jax/cnn_mnist \
         --optimizer "$OPT" --n-trials "$N_TRIALS" \
         --hpo-generations "$MNIST_HPO_GENERATIONS" --final-generations "$MNIST_GENERATIONS" \
-        --population-size-max "$MNIST_POP_MAX" --seed "$HPO_SEED" \
+        --population-size-max "$MNIST_POP_MAX" --seed "$HPO_SEED" --final-seeds "$SEEDS" \
         --set "fitness_batch_size=$MNIST_FITNESS_BATCH" --set "eval_every_gen=$MNIST_EVAL_EVERY"
 done
 

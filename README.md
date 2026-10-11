@@ -80,8 +80,15 @@ is an independent training subprocess, so JAX state never leaks between trials.
 | `init_std_multiplier` | 0.1–3.0, log | every algorithm |
 | `es_learning_rate` | 1e-4–1e-1, log | only algorithms with an internal optimizer (Open-ES, PGPE, SNES, ARS) |
 
-After the search it retrains once at full budget with the best values, saved as
-`variant=hpo` beside the `baseline` run of the same algorithm so the two compare directly.
+After the search it retrains at full budget with the best values, once per seed in
+`--final-seeds` (the campaigns pass their `SEEDS`), saved as `variant=hpo` beside the
+`baseline` runs of the same algorithm so the two compare directly. The search itself is
+stored in `study.db`, so an interrupted search resumes when re-run with the same
+arguments; delete `study.db` to start over.
+
+ES runs save the candidate with the best validation loss (the search mean for
+distribution-based algorithms, the best population member otherwise), the same
+selection rule the SGD trainers use.
 
 ### 4. Sweeps (variant `<dimension>_<value>`)
 
@@ -159,13 +166,14 @@ outputs/
   runs/<dataset>/<framework>_<method>/<algorithm>/<variant>/seed_<n>/
       .hydra/config.yaml      exact config this run used (enough to rebuild the model)
       best_model.msgpack      trained weights — best_model.pt for PyTorch runs
-      metrics.json            best validation loss, budget
+      metrics.json            best validation loss, budget (ES runs)
       events.out.tfevents.*   TensorBoard scalars
       <exp_name>.log
 
   hpo/<dataset>/<framework>_<method>/<algorithm>/
       trials.csv              every trial: sampled hyperparameters, objective, duration
       best_params.json        winning configuration
+      study.db                Optuna study, for resuming
       trial_<n>/              each trial's own run directory
 
   reports/
@@ -190,7 +198,8 @@ shouldn't be picked up as if they were real runs.
 
 **Reading a report.** `<campaign>.csv` gives per-seed detail; `<campaign>_summary.csv` is
 what you usually want, one line per `(dataset, framework, method, algorithm, variant)`
-with `rmse_mean` / `rmse_std` / `n_seeds`. Compare `baseline` against `hpo` rows of the
+with `rmse_mean` / `rmse_std` / `n_seeds`. RMSE is in the target's original units (the
+model trains on standardized targets, and `test.py` scales the error back). Compare `baseline` against `hpo` rows of the
 same algorithm, and read any difference against the seed-to-seed spread before treating
 it as real.
 

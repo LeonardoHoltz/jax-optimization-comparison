@@ -75,7 +75,10 @@ def evaluate_run(run_dir: Path) -> dict | None:
         else:
             if preds.ndim > y_test.ndim:
                 preds = preds.reshape(y_test.shape)
-            test_mse = float(((preds - y_test) ** 2).mean())
+            # Targets may be standardized for training; report error in the target's own
+            # units (e.g. California's $100k) so numbers compare with published results.
+            y_scale = float(getattr(dataset, "_y_std", [1.0])[0])
+            test_mse = float(((preds - y_test) ** 2).mean()) * y_scale**2
             row["mse"] = test_mse
             row["rmse"] = test_mse**0.5
     except Exception as e:
@@ -86,7 +89,7 @@ def evaluate_run(run_dir: Path) -> dict | None:
     return row
 
 
-def _write_summary(rows: list[dict], summary_path: Path) -> None:
+def _write_summary(rows: list[dict], summary_path: Path):
     """Aggregate the per-run rows across seeds: one line per
     (dataset, framework, method, algorithm, variant) with mean/std/n_seeds of each
     metric, so a campaign run with SEEDS="0,1,2" reports variance rather than a single

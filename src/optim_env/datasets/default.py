@@ -43,10 +43,18 @@ class DataModule:
         self.val_data/self.test_data directly, in which case `split()` is a no-op."""
         raise NotImplementedError
 
+    def _check_features(self, X):
+        """Fail loudly when the config's num_features disagrees with the data, rather than
+        silently padding or dropping columns."""
+        if self.num_features is not None and X.shape[1] != self.num_features:
+            raise ValueError(
+                f"Dataset '{self.name}' has {X.shape[1]} features but the config says "
+                f"num_features={self.num_features}"
+            )
+
     def _standardize(self, arr):
         """Zero-mean, unit-variance standardization, matching the paper's practice of
-        standardizing features/regression targets. Fit-on-everything approximation
-        since this DataModule does not keep a held-out fit-only split."""
+        standardizing features/regression targets."""
         mean = arr.mean(axis=0)
         std = arr.std(axis=0)
         std = np.where(std < 1e-8, 1.0, std)
@@ -95,15 +103,6 @@ class DataModule:
         )
 
     def get_val_loader(self, dataset):
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=self.collate_fn,
-        )
-
-    def get_test_loader(self, dataset):
         return DataLoader(
             dataset,
             batch_size=self.batch_size,

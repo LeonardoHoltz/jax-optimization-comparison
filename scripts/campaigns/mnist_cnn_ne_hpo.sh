@@ -43,7 +43,7 @@ for OPT in "${OPTIMIZERS[@]}"; do
         --optimizer "$OPT" \
         --n-trials "$N_TRIALS" --hpo-generations "$HPO_GENERATIONS" \
         --population-size-max "$POPULATION_SIZE_MAX" \
-        --final-generations "$GENERATIONS" --seed "$HPO_SEED" \
+        --final-generations "$GENERATIONS" --seed "$HPO_SEED" --final-seeds "$SEEDS" \
         "${HPO_SET[@]}"
 done
 

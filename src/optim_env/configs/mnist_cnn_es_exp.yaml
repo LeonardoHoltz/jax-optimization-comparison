@@ -7,8 +7,6 @@
 framework: jax
 method: NE
 seed: 0
-hooks: []
-learning_rate: 0.001
 generations: 300
 eval_every_gen: 10
 fitness_batch_size: 256

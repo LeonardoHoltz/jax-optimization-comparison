@@ -4,9 +4,12 @@ Each trial launches tools/train.py as an independent subprocess with sampled ove
 (so JAX/JIT state and RNGs never leak between trials), reads back that run's
 outputs/hpo/<optimizer>/trial_<n>/metrics.json (written by ESTrainer.fit()), and reports
 its best_val_loss to Optuna. After the search, retrains once at full generation budget
-using the best hyperparameters found and saves it as a normal experiment output
-(exp_name suffixed "_hpo") so it can be evaluated/compared like any other run via
-tools/test.py.
+using the best hyperparameters found, once per --final-seeds seed, and saves those as
+normal experiment outputs (variant "hpo") so they can be evaluated/compared like any other
+run via tools/test.py.
+
+The study is stored in <study dir>/study.db, so an interrupted search resumes where it
+stopped when re-run with the same arguments. Delete study.db to start a fresh search.
 
 Search space (see ESTrainer.prepare_model for what each knob actually does):
     optimizer.population_size  -- every evosax algorithm
@@ -68,14 +71,14 @@ def _accepts_internal_optimizer(optimizer_arg: str) -> bool:
 VAL_LINE = re.compile(r"(?:Generation|Epoch) (\d+) \| val loss=([\d.eE+-]+)")
 
 
-def _run_trial(args, overrides: list[str], run_dir: Path, trial: optuna.Trial = None) -> dict:
+def _run_trial(args, overrides: list[str], run_dir: Path, trial: optuna.Trial = None, seed: int = None) -> dict:
     cmd = [
         sys.executable, "src/optim_env/tools/train.py",
         "--config-name", args.config_name,
         f"dataset={args.dataset}",
         f"model={args.model}",
         f"optimizer={args.optimizer}",
-        f"seed={args.seed}",
+        f"seed={args.seed if seed is None else seed}",
         f"save_path={run_dir}",
         f"hydra.run.dir={run_dir}",
         *overrides,
@@ -118,7 +121,7 @@ def _run_trial(args, overrides: list[str], run_dir: Path, trial: optuna.Trial = 
         return json.load(f)
 
 
-def make_objective(args, tunes_lr: bool, study_dir: Path, algorithm: str):
+def make_objective(args, tunes_lr: bool, study_dir: Path):
     def objective(trial: optuna.Trial) -> float:
         population_size = trial.suggest_int("population_size", 16, args.population_size_max, step=2)
         init_std_multiplier = trial.suggest_float("init_std_multiplier", 0.1, 3.0, log=True)
@@ -151,21 +154,23 @@ def main():
     parser.add_argument("--optimizer", required=True, help="e.g. jax/sep_cma_es")
     parser.add_argument("--n-trials", type=int, default=20)
     parser.add_argument("--population-size-max", type=int, default=96,
-                         help="Upper bound for the population_size search dimension. Full-batch fitness "
-                              "evaluation is vmapped over the whole population, so this is capped well "
-                              "below evosax's own limits to avoid GPU OOM on larger models (population=64 "
-                              "is the largest size validated across this repo's own extensive testing).")
+                         help="Upper bound for the population_size search dimension. Fitness is "
+                              "vmapped over the whole population, so lower it if trials run out of GPU "
+                              "memory (the MNIST campaigns use 64).")
     parser.add_argument("--hpo-generations", type=int, default=100, help="Generation budget per trial. Keep it close to --final-generations: "
                              "scoring trials at a much shorter budget favours optimizers that "
                              "plateau early over ones that keep improving. Pruning (see "
                              "_run_trial) is what makes a long budget affordable.")
     parser.add_argument("--final-generations", type=int, default=300, help="Generation budget for the final, best-hyperparameter confirmation run")
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=0, help="Seed every search trial runs with")
+    parser.add_argument("--final-seeds", default=None,
+                        help="Comma-separated seeds for the final confirmation runs, e.g. 0,1,2, so "
+                             "tuned results get the same seed spread as the baselines. Defaults to --seed.")
     parser.add_argument("--variant", default="hpo",
-                        help="Variant label for the final confirmation run and the study "
-                             "directory. Both are overwritten in place, so pass a throwaway "
-                             "name (e.g. --variant smoketest) when testing the machinery, or "
-                             "a real result is silently replaced.")
+                        help="Variant label for the final confirmation runs and the study "
+                             "directory. Re-running with the same variant resumes that study and "
+                             "overwrites its final runs, so pass a throwaway name (e.g. --variant "
+                             "smoketest) when testing the machinery.")
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                         help="Extra Hydra override passed through to every trial and to the "
                              "final run, repeatable (e.g. --set fitness_batch_size=256)")
@@ -190,8 +195,17 @@ def main():
     pruner = optuna.pruners.MedianPruner(
         n_startup_trials=5, n_warmup_steps=args.hpo_generations // 4,
     )
-    study = optuna.create_study(direction="minimize", study_name=algorithm, pruner=pruner)
-    study.optimize(make_objective(args, tunes_lr, study_dir, algorithm), n_trials=args.n_trials)
+    # Persisted to disk after every trial, so a crash or Ctrl-C hours in loses at most the
+    # trial that was running. Re-running continues up to --n-trials finished trials.
+    study = optuna.create_study(
+        direction="minimize", study_name=algorithm, pruner=pruner,
+        storage=f"sqlite:///{study_dir / 'study.db'}", load_if_exists=True,
+    )
+    finished = (optuna.trial.TrialState.COMPLETE, optuna.trial.TrialState.PRUNED)
+    n_done = len(study.get_trials(deepcopy=False, states=finished))
+    if n_done:
+        log.info(f"Resuming study: {n_done} trials already finished")
+    study.optimize(make_objective(args, tunes_lr, study_dir), n_trials=max(args.n_trials - n_done, 0))
 
     study.trials_dataframe().to_csv(study_dir / "trials.csv", index=False)
     completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
@@ -206,10 +220,11 @@ def main():
         json.dump({"best_value": study.best_value, "best_params": study.best_params}, f, indent=2)
     log.info(f"Best trial: value={study.best_value:.4f} params={study.best_params}")
 
-    # Final confirmation run at full generation budget with the best hyperparameters found.
-    # It goes in the normal runs/ tree (not under outputs/hpo/, which holds search trials)
-    # as variant="hpo", so it sits right next to the "baseline" run of the same algorithm
-    # and tools/test.py picks both up for comparison.
+    # Final confirmation runs at full generation budget with the best hyperparameters found,
+    # one per seed so the tuned rows of a report carry a seed spread like the baselines do.
+    # They go in the normal runs/ tree (not under outputs/hpo/, which holds search trials)
+    # as variant="hpo", right next to the "baseline" runs of the same algorithm, and
+    # tools/test.py picks both up for comparison.
     final_overrides = [
         f"generations={args.final_generations}",
         f"variant={args.variant}",
@@ -219,14 +234,15 @@ def main():
     if tunes_lr:
         final_overrides.append(f"es_learning_rate={study.best_params['es_learning_rate']}")
 
-    final_dir = run_dir(dataset_name, exp_cfg.framework, exp_cfg.method, algorithm, args.variant, args.seed)
-    log.info(f"Running final confirmation with best hyperparameters -> {final_dir}")
-    final_metrics = _run_trial(args, final_overrides, final_dir)
-    if final_metrics is not None:
-        log.info(f"Final HPO-tuned run: best_val_loss={final_metrics['best_val_loss']:.4f} (see {final_dir})")
-    else:
-        log.warning("Final confirmation run failed; see its stderr above.")
-
+    final_seeds = [int(x) for x in args.final_seeds.split(",")] if args.final_seeds else [args.seed]
+    for seed in final_seeds:
+        final_dir = run_dir(dataset_name, exp_cfg.framework, exp_cfg.method, algorithm, args.variant, seed)
+        log.info(f"Running final confirmation (seed {seed}) with best hyperparameters -> {final_dir}")
+        final_metrics = _run_trial(args, final_overrides, final_dir, seed=seed)
+        if final_metrics is not None:
+            log.info(f"Final HPO-tuned run (seed {seed}): best_val_loss={final_metrics['best_val_loss']:.4f}")
+        else:
+            log.warning(f"Final confirmation run (seed {seed}) failed; see its output above.")
 
 if __name__ == "__main__":
     main()

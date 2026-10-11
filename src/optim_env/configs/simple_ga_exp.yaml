@@ -1,8 +1,6 @@
 framework: jax
 method: NE
 seed: 42
-hooks: []
-learning_rate: 0.001
 generations: 100
 eval_every_gen: 10
 

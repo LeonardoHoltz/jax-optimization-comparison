@@ -24,7 +24,3 @@ def hpo_dir(dataset: str, framework: str, method: str, algorithm: str) -> Path:
     best_params.json and the per-trial run directories for one search."""
     return HPO / dataset / f"{framework}_{method}" / algorithm
 
-
-def report_path(campaign: str, suffix: str = ".csv") -> Path:
-    """outputs/reports/<campaign>.csv (or _manifest.json alongside it)."""
-    return REPORTS / f"{campaign}{suffix}"

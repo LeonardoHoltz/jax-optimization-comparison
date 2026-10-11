@@ -5,7 +5,6 @@
 framework: torch
 method: SGD
 seed: 0
-hooks: []
 learning_rate: 0.001304086404538407
 weight_decay: 0.0001516844843295127
 epochs: 200

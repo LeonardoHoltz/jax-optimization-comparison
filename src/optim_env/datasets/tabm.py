@@ -33,19 +33,18 @@ class TabMDataModule(DataModule):
 
         for split, (X, y) in per_split.items():
             X = X.astype(np.float32)
-            if self.num_features is not None and X.shape[1] != self.num_features:
-                X = self._align_features(X, self.num_features)
+            self._check_features(X)
             y = y.astype(np.int32) if self.num_classes > 0 else y.astype(np.float32)
             per_split[split] = (X, y)
 
         if self.normalize:
-            # Fit standardization stats on the combined pool (matching the previous
-            # behavior), then apply the same stats to every split independently.
-            pooled_X = np.concatenate([X for X, _ in per_split.values()])
-            _, self._x_mean, self._x_std = self._standardize(pooled_X)
+            # Fit standardization stats on train only, then apply them to every split, so
+            # nothing about val/test leaks into training. tools/test.py uses _y_std to
+            # report regression error back in the target's original units.
+            train_X, train_y = per_split["train"]
+            _, self._x_mean, self._x_std = self._standardize(train_X)
             if self.num_classes == 0:
-                pooled_y = np.concatenate([y for _, y in per_split.values()]).reshape(-1, 1)
-                _, self._y_mean, self._y_std = self._standardize(pooled_y)
+                _, self._y_mean, self._y_std = self._standardize(train_y.reshape(-1, 1))
 
             for split, (X, y) in per_split.items():
                 X = (X - self._x_mean) / self._x_std
@@ -109,8 +108,3 @@ class TabMDataModule(DataModule):
             offset += n
         return per_split
 
-    def _align_features(self, X, n_features):
-        if X.shape[1] < n_features:
-            padding = np.zeros((X.shape[0], n_features - X.shape[1]), dtype=X.dtype)
-            return np.concatenate([X, padding], axis=1)
-        return X[:, :n_features]

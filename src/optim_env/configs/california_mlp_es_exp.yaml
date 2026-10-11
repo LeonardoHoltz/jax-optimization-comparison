@@ -8,8 +8,6 @@
 framework: jax
 method: NE
 seed: 0
-hooks: []
-learning_rate: 0.001304086404538407
 generations: 300
 eval_every_gen: 10
 # Hyperparameter-optimization hooks (see ESTrainer.prepare_model / tools/hpo.py). Defaults
