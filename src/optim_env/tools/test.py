@@ -1,10 +1,6 @@
-"""Evaluate trained checkpoints (JAX or PyTorch) on their dataset's held-out TEST split
-(not train/val), reconstructing each run from the exact Hydra config it was trained with
-(its .hydra/config.yaml), and aggregate across runs/optimizers/frameworks/seeds into
-outputs/reports/.
-
-Writes two files per campaign: <campaign>.csv with one row per run (per seed), and
-<campaign>_summary.csv aggregated over seeds (mean/std per algorithm+variant).
+"""Score finished runs (JAX or PyTorch) on their dataset's test split. Each run is rebuilt
+from its own .hydra/config.yaml. Writes <campaign>.csv (one row per run) and
+<campaign>_summary.csv (mean/std over seeds) to outputs/reports/.
 
 Usage:
     pixi run python src/optim_env/tools/test.py                       # every run in outputs/runs
@@ -46,10 +42,8 @@ def evaluate_run(run_dir: Path) -> dict | None:
         log.warning(f"Skipping {run_dir}: missing {checkpoint_path.name}")
         return None
 
-    # Broad on purpose: this aggregates across whatever historical run directories a glob
-    # happens to match, some of which may predate a later module rename/reorg (their saved
-    # .hydra/config.yaml then points at code that no longer exists) or otherwise no longer
-    # be loadable. One bad directory should be skipped, not crash the whole batch.
+    # Broad on purpose: old run directories may point at code that has since moved.
+    # Skip them instead of failing the whole report.
     try:
         dataset = load_dataset(cfg)
         test_ds = dataset.get_test_ds()

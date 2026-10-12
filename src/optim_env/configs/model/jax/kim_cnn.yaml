@@ -1,0 +1,4 @@
+_target_: optim_env.jax_env.models.text.KimCNN
+vocab_size: ${dataset.vocab_size}
+dout: ${max:${dataset.num_classes},1}
+dropout: 0.5

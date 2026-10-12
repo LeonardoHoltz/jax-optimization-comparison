@@ -1,0 +1,5 @@
+# TabM paper's tuned MLP for california (references/tabm_mlp.json).
+_target_: optim_env.jax_env.models.linear.MLP
+hidden_dims: [208, 208]
+dout: ${max:${dataset.num_classes},1}
+dropout: 0.17186995074626696

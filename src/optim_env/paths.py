@@ -1,10 +1,5 @@
-"""Canonical output locations, mirroring configs/base/run_layout.yaml.
-
-Training runs get their directory from Hydra (run_layout.yaml builds it via config
-interpolation); these helpers are for tooling that needs to *find* or *place* results
-outside a Hydra run -- tools/hpo.py, report aggregation, notebooks. tests/test_paths.py
-asserts these stay in agreement with what an actual composed config produces.
-"""
+"""Output locations for tools that work outside a Hydra run. Mirrors
+configs/base/run_layout.yaml; tests/test_paths.py keeps the two in sync."""
 
 from pathlib import Path
 

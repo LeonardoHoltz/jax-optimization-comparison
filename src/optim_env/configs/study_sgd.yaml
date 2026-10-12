@@ -1,0 +1,19 @@
+# Reproduction study, gradient arm. scripts/campaigns/reproduction_study.py sets the
+# dataset, model, loss and budget for each task.
+framework: jax
+method: SGD
+seed: 0
+learning_rate: 0.001
+weight_decay: 0.0001
+epochs: 200
+patience: 16
+save_checkpoint: true
+
+defaults:
+  - base/run_layout
+  - trainer: jax/sgd_trainer
+  - dataset: tabm_california_quantile
+  - model: jax/mlp_tabm_california
+  - optimizer: jax/adamw_clip
+  - loss: jax/mse
+  - _self_

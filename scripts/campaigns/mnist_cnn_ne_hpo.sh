@@ -1,20 +1,6 @@
 #!/bin/bash
-# Image-track counterpart to california_ne_hpo.sh: does hyperparameter tuning rescue the
-# neuroevolution optimizers that collapsed on MNIST?
-#
-# The baseline mnist_cnn_optimizers campaign left three algorithms at or near chance
-# accuracy (SNES 0.152, PGPE 0.184, PSO 0.203, against 0.10 for random guessing) even
-# though all three were stable on the tabular California task. Two explanations fit that
-# evidence equally well: the default hyperparameters happen to be wrong for a 20K-parameter
-# CNN, or these algorithms genuinely do not cope with this search landscape. This campaign
-# separates them -- if a TPE search over population size, initial std and (where it
-# applies) the internal learning rate still cannot beat chance, the failure is the
-# algorithm rather than the defaults.
-#
-# Defaults to those three optimizers because that is the open question and the search is
-# the expensive stage (one training run per trial). Pass a comma-separated list as $1 to
-# tune others, e.g. the full set used by the baseline campaign:
-#   scripts/campaigns/mnist_cnn_ne_hpo.sh "jax/sep_cma_es,jax/snes,jax/pgpe,jax/open_es,jax/ars,jax/particle_swarm,jax/simple_ga,jax/differential_evolution,jax/cr_fm_nes"
+# Does tuning rescue the ES optimizers that scored near chance on MNIST (SNES, PGPE, PSO)?
+# Pass a comma-separated optimizer list as $1 to tune others.
 source "$(dirname "$0")/../lib/common.sh"
 
 CAMPAIGN=${CAMPAIGN:-mnist_cnn_ne_hpo}
@@ -41,9 +27,9 @@ for OPT in "${OPTIMIZERS[@]}"; do
     section "HPO search for $OPT ($N_TRIALS trials x $HPO_GENERATIONS generations)"
     $HPO --config-name mnist_cnn_es_exp --dataset mnist --model jax/cnn_mnist \
         --optimizer "$OPT" \
-        --n-trials "$N_TRIALS" --hpo-generations "$HPO_GENERATIONS" \
+        --n-trials "$N_TRIALS" --hpo-budget "$HPO_GENERATIONS" \
         --population-size-max "$POPULATION_SIZE_MAX" \
-        --final-generations "$GENERATIONS" --seed "$HPO_SEED" --final-seeds "$SEEDS" \
+        --final-budget "$GENERATIONS" --seed "$HPO_SEED" --final-seeds "$SEEDS" \
         "${HPO_SET[@]}"
 done
 

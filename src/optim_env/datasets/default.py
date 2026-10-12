@@ -1,5 +1,5 @@
 from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import BatchSampler, DataLoader, Dataset, RandomSampler, SequentialSampler
 from pathlib import Path
 import logging
 import numpy as np
@@ -7,13 +7,8 @@ import jax.numpy as jnp
 import torch
 
 class DataModule:
-    """Shared, framework-agnostic dataset/split/loading logic for both the JAX and
-    PyTorch training paths (see optim_env.jax_env / optim_env.torch_env) --
-    everything up to and including the DataLoader is plain numpy/pandas underneath,
-    with only the final collate step producing framework-specific tensors, so this
-    class and its subclasses (SklearnDataModule, PMLBDataModule, TabMDataModule) don't
-    need to be duplicated per framework. `framework` picks which collate_fn the
-    get_*_loader methods use."""
+    """Dataset loading and splitting shared by the JAX and PyTorch paths. Everything is
+    numpy until the collate step, which `framework` picks."""
 
     def __init__(self, name, num_features, num_classes, root, val_split, batch_size, seed, normalize=False, framework="jax"):
         self.logger = logging.getLogger()
@@ -37,15 +32,12 @@ class DataModule:
         self.split()
 
     def resolve(self):
-        """Subclasses populate data here. Either set self.X/self.y for a single pool (in
-        which case `split()` below creates a random train/val split, with no test data),
-        or -- for datasets shipped with genuine, fixed splits -- set self.train_data/
-        self.val_data/self.test_data directly, in which case `split()` is a no-op."""
+        """Subclasses load data here: set train_data/val_data/test_data for fixed splits,
+        or self.X/self.y for a pool that `split()` cuts into train/val."""
         raise NotImplementedError
 
     def _check_features(self, X):
-        """Fail loudly when the config's num_features disagrees with the data, rather than
-        silently padding or dropping columns."""
+        """Raise when the config's num_features disagrees with the data."""
         if self.num_features is not None and X.shape[1] != self.num_features:
             raise ValueError(
                 f"Dataset '{self.name}' has {X.shape[1]} features but the config says "
@@ -53,19 +45,14 @@ class DataModule:
             )
 
     def _standardize(self, arr):
-        """Zero-mean, unit-variance standardization, matching the paper's practice of
-        standardizing features/regression targets."""
+        """Zero mean, unit variance per column."""
         mean = arr.mean(axis=0)
         std = arr.std(axis=0)
         std = np.where(std < 1e-8, 1.0, std)
         return (arr - mean) / std, mean, std
 
     def split(self):
-        """Fallback only: if resolve() already populated train_data/val_data directly
-        (datasets with genuine, fixed splits), this is a no-op -- their split boundaries
-        are left exactly as resolve() set them, including test_data if present.
-        Otherwise, falls back to a random train/val split of self.X/self.y; no test
-        partition exists in that case."""
+        """Random train/val split of self.X/self.y, unless resolve() set fixed splits."""
         if self.train_data is not None and self.val_data is not None:
             return
         X_train, X_val, y_train, y_val = train_test_split(
@@ -93,35 +80,26 @@ class DataModule:
         return XYDataset(self.test_data["X"], self.test_data["y"])
 
     def get_train_loader(self, dataset):
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=0,
-            collate_fn=self.collate_fn,
-            drop_last=True,
-        )
+        # Seeded shuffle, so a rerun sees the same batches in the same order.
+        order = RandomSampler(dataset, generator=torch.Generator().manual_seed(self.seed))
+        return self._loader(dataset, order, drop_last=True)
 
     def get_val_loader(self, dataset):
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=self.collate_fn,
-        )
+        return self._loader(dataset, SequentialSampler(dataset), drop_last=False)
+
+    def _loader(self, dataset, order, drop_last):
+        # The sampler yields whole index lists, so each batch is one numpy fancy-index
+        # instead of batch_size separate __getitem__ calls.
+        return DataLoader(dataset, sampler=BatchSampler(order, self.batch_size, drop_last),
+                          batch_size=None, num_workers=0, collate_fn=self.collate_fn)
 
     def jax_collate_fn(self, batch):
-        xs, ys = zip(*batch)
-        X = jnp.asarray(np.stack(xs))
-        y = jnp.asarray(np.stack(ys))
-        return X, y
+        X, y = batch
+        return jnp.asarray(X), jnp.asarray(y)
 
     def torch_collate_fn(self, batch):
-        xs, ys = zip(*batch)
-        X = torch.from_numpy(np.stack(xs))
-        y = torch.from_numpy(np.stack(ys))
-        return X, y
+        X, y = batch
+        return torch.from_numpy(np.ascontiguousarray(X)), torch.from_numpy(np.ascontiguousarray(y))
 
 class XYDataset(Dataset):
     def __init__(self, X, y):

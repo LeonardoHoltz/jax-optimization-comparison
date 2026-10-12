@@ -1,0 +1,4 @@
+_target_: optim_env.jax_env.models.text.FastText
+vocab_size: ${dataset.vocab_size}
+dout: ${max:${dataset.num_classes},1}
+embed_dim: 10

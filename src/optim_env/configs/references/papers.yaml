@@ -1,0 +1,30 @@
+# Published test scores the study's "paper" models try to reproduce. Tabular targets
+# live in tabm_mlp.json (written by optim_env.prepare_dataset.tabm_references).
+mnist:
+  model: LeNet-5
+  metric: accuracy
+  mean: 0.9905
+  std: null
+  source: "LeCun et al. 1998, Gradient-Based Learning Applied to Document Recognition (0.95% test error, no distortions)"
+  note: "Number taken from secondary sources citing the paper; the original used tanh units and subsampling."
+fashion_mnist:
+  model: LeNet-5
+  metric: accuracy
+  mean: 0.9014
+  std: null
+  source: "arXiv:2603.10731 (LeNet on Fashion-MNIST, 90.14%)"
+  note: "Secondary source. Fashion-MNIST's own README lists small CNNs at 0.876-0.925, all marked untested."
+ag_news:
+  model: fastText (h=10, no bigrams)
+  metric: accuracy
+  mean: 0.915
+  std: null
+  source: "Joulin et al. 2016, Bag of Tricks for Efficient Text Classification, Table 1"
+  note: "fastText trained 5 epochs with plain SGD and a decaying learning rate; this study uses AdamW."
+sst2:
+  model: Kim CNN-rand
+  metric: accuracy
+  mean: 0.827
+  std: null
+  source: "Kim 2014, Convolutional Neural Networks for Sentence Classification, Table 2"
+  note: "The paper also applies a max-norm weight constraint, which this study leaves out."

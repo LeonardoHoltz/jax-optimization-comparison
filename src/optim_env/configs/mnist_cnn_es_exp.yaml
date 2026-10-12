@@ -1,9 +1,5 @@
-# Same CNN/MNIST setup as mnist_cnn_sgd_exp.yaml, searched by evosax evolutionary
-# strategies instead of gradient descent.
-#
-# fitness_batch_size is required here, unlike the tabular experiments: fitness is
-# evaluated for the whole population at once, and a conv stack over the full 50K-image
-# training set would need orders of magnitude more activation memory than the GPU has.
+# MNIST CNN trained by evosax. fitness_batch_size is required: the full 50K-image
+# training set times the population doesn't fit in GPU memory.
 framework: jax
 method: NE
 seed: 0

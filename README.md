@@ -71,14 +71,18 @@ deriving the initial spread from the model's own weights — see the extended co
 
 ### 3. Hyperparameter optimization (variant `hpo`)
 
-Optuna with the TPE sampler minimizes validation loss over ES hyperparameters. Each trial
-is an independent training subprocess, so JAX state never leaks between trials.
+Optuna with the TPE sampler minimizes validation loss. Each trial is its own training
+subprocess, so JAX state never leaks between trials. `tools/hpo.py` picks the search
+space from the experiment's `method`:
 
 | Hyperparameter | Range | Applies to |
 |---|---|---|
-| `optimizer.population_size` | 16–96, step 2 | every algorithm |
-| `init_std_multiplier` | 0.1–3.0, log | every algorithm |
-| `es_learning_rate` | 1e-4–1e-1, log | only algorithms with an internal optimizer (Open-ES, PGPE, SNES, ARS) |
+| `optimizer.population_size` | 16–96, step 2 | NE, every algorithm |
+| `init_std_multiplier` | 0.1–3.0, log | NE, every algorithm |
+| `es_learning_rate` | 1e-4–1e-1, log | NE, algorithms with an internal optimizer (Open-ES, PGPE, SNES, ARS) |
+| `learning_rate` | `--lr-min`–`--lr-max`, log | SGD |
+| `weight_decay` | 1e-6–1e-1, log | SGD |
+| `model.dropout` | 0–0.5 | SGD, models with dropout |
 
 After the search it retrains at full budget with the best values, once per seed in
 `--final-seeds` (the campaigns pass their `SEEDS`), saved as `variant=hpo` beside the
@@ -96,6 +100,34 @@ Sweeping something that isn't part of the output path — architecture, populati
 encodes that dimension in `variant` so runs don't overwrite each other
 (e.g. `pop_30`, `model_mlp_2_layers_5`).
 
+### 5. Reproduction study
+
+Can each training method reach published scores on small, well-known benchmarks? Nine
+tasks (5 tabular, 2 image, 2 text), each with the paper's model and a smaller one,
+trained by gradient descent and by all ten ES optimizers, untuned and tuned, 5 seeds each.
+The tasks, models, budgets and targets live in `configs/study/reproduction.yaml` and
+`configs/references/`.
+
+```bash
+pixi run python scripts/campaigns/reproduction_study.py --pilot          # tiny budgets, checks the chain
+pixi run python scripts/campaigns/reproduction_study.py --stage sgd      # gradient arms
+pixi run python scripts/campaigns/reproduction_study.py --stage ne --tasks california
+```
+
+Stopping and re-running is safe: finished runs are skipped and searches resume. Results
+go to `outputs/reports/reproduction/reproduction.xlsx`, which starts with a "Read me"
+sheet. The driver fixes GPU kernel choices (autotuning off) and seeds the data order, so a
+rerun on the same GPU repeats its checkpoints bit for bit; gradient runs of the two
+embedding models also get `--xla_gpu_deterministic_ops`, which makes them about 4x slower.
+
+| Task | Paper model → published score | Simple model |
+|---|---|---|
+| California, Adult, Higgs Small, Churn, House | TabM's tuned MLP (`references/tabm_mlp.json`) | MLP 2×64 |
+| MNIST | LeNet-5 → 99.05% | CNN, 20K parameters |
+| Fashion-MNIST | LeNet-5 → 90.14% | CNN, 20K parameters |
+| AG News | fastText → 91.5% | linear model on mean GloVe vectors |
+| SST-2 | Kim CNN-rand → 82.7% | linear model on mean GloVe vectors |
+
 ### Datasets
 
 | Config | Task | Notes |
@@ -104,9 +136,12 @@ encodes that dimension in `variant` so runs don't overwrite each other
 | `tabm_adult`, `tabm_microsoft` | classification / regression | Same TabM benchmark format |
 | `pmlb_mushroom`, `pmlb_penguins` | classification | Smaller, quick to iterate on |
 | `sklearn_california_housing` | regression | Raw sklearn fetch, random split (no held-out test) |
+| `tabm_*_quantile` | TabM tasks | TabM paper preprocessing (noisy-quantile), used by the reproduction study |
+| `mnist`, `fashion_mnist` | image classification | Official test sets; validation carved from train |
+| `ag_news_*`, `sst2_*` | text classification | `_tokens` for embedding models, `_glove` for mean GloVe vectors |
 
-Only TabM datasets ship a genuine held-out test split, so they're the ones `test.py` can
-evaluate; the others expose train/val only.
+TabM, image and text datasets ship a held-out test split, so `test.py` can evaluate
+them; PMLB and sklearn expose train/val only.
 
 ## 📜 Scripts
 
@@ -217,6 +252,16 @@ pixi run python -m optim_env.prepare_dataset.pmlb_dataset --name penguins --root
 # https://huggingface.co/datasets/rototoHF/tabm-data
 pixi run python -m optim_env.prepare_dataset.huggingface --repo-id rototoHF/tabm-data --name california --root data/tabm
 pixi run python -m optim_env.prepare_dataset.huggingface --repo-id rototoHF/tabm-data --name adult --root data/tabm
+```
+
+Image and text datasets, and the TabM reference scores (every source pinned and
+checksummed):
+
+```bash
+pixi run python -m optim_env.prepare_dataset.images --name mnist --root data
+pixi run python -m optim_env.prepare_dataset.images --name fashion_mnist --root data
+pixi run python -m optim_env.prepare_dataset.text --name ag_news sst2 --root data/text
+pixi run python -m optim_env.prepare_dataset.tabm_references
 ```
 
 `optim_env.prepare_dataset.kaggle` is available for any future Kaggle-backed dataset

@@ -1,11 +1,6 @@
-# MLP baseline for California Housing, reproducing the tuned configuration from
-# Gorishniy et al. (2021), "Revisiting Deep Learning Models for Tabular Data" (NeurIPS 2021).
-# MLP is described there (Appendix D.2) as "the fastest and simplest DL model" they evaluate.
-# Architecture follows Eq. 1 in the paper: MLP(x) = Linear(MLPBlock(...MLPBlock(x)))
-# with MLPBlock(x) = Dropout(ReLU(Linear(x))).
-# d_layers / dropout values below are the exact tuned hyperparameters (seed 0) published in
-# https://github.com/yandex-research/tabular-dl-revisiting-models/blob/main/output/california_housing/mlp/tuned/0.toml
-# which reports test RMSE = 0.4942 (paper's Table 2 average over 15 seeds: RMSE = 0.499).
+# Gorishniy et al. 2021 tuned MLP for California (blocks of Dropout(ReLU(Linear))).
+# Values from tabular-dl-revisiting-models output/california_housing/mlp/tuned/0.toml
+# (test RMSE 0.4942; paper mean over 15 seeds 0.499).
 _target_: optim_env.jax_env.models.linear.MLP
 hidden_dims: [510, 263, 363]
 dout: ${max:${dataset.num_classes},1}

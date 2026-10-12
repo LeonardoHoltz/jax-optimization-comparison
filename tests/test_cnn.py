@@ -66,7 +66,7 @@ def test_mnist_scales_pixels_to_unit_range(tmp_path):
 
 
 def test_mnist_raises_with_download_hint_when_missing(tmp_path):
-    with pytest.raises(FileNotFoundError, match="curl"):
+    with pytest.raises(FileNotFoundError, match="prepare_dataset.images"):
         MNISTDataModule(
             name="mnist", num_features=784, num_classes=10, root=tmp_path,
             val_split=0.0, batch_size=4, seed=0,

@@ -1,0 +1,19 @@
+# Reproduction study, neuroevolution arm. Same per-task settings as study_sgd.yaml.
+framework: jax
+method: NE
+seed: 0
+generations: 300
+eval_every_gen: 10
+fitness_batch_size: null
+init_std_multiplier: 1.0
+es_learning_rate: 0.001
+save_checkpoint: true
+
+defaults:
+  - base/run_layout
+  - trainer: jax/es_trainer
+  - dataset: tabm_california_quantile
+  - model: jax/mlp_tabm_california
+  - optimizer: jax/sep_cma_es
+  - loss: jax/mse
+  - _self_

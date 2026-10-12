@@ -1,28 +1,8 @@
 #!/bin/bash
-# Fair tuned-vs-untuned comparison across both tracks.
-#
-# Every optimizer gets the same treatment on each track: a baseline run on shared defaults,
-# then an Optuna/TPE search, then a confirmation run at the full budget using the best
-# hyperparameters found. Earlier campaigns tuned only a subset, which made the reports mix
-# tuned and untuned numbers in the same column -- this one does not.
-#
-# Two things differ from the earlier per-track scripts:
-#
-#   1. Trials run at a large fraction of the final budget (all of it on tabular, half on
-#      image) instead of a tenth. Scoring a trial at a short budget rewards optimizers that
-#      plateau early and penalises ones that improve slowly, which is backwards for picking
-#      an optimizer you intend to run long. PSO beat SNES at 200 generations on MNIST and
-#      lost to it threefold at 2000.
-#   2. That is affordable because tools/hpo.py now streams each trial's intermediate
-#      validation loss to Optuna, so MedianPruner kills trials that fall behind instead of
-#      paying for their full budget.
-#
-# Stale California runs from the hpo.py smoke tests (1-2 generations, but shaped exactly
-# like real results) are moved aside first, since test.py globs the runs tree and would
-# otherwise aggregate them into the report.
-#
-# Resumable: comment out a stage you have already completed. Expect several hours; run it
-# detached.
+# Tuned vs untuned for every ES optimizer, on both tracks: untuned runs, an Optuna search,
+# then the best settings retrained over SEEDS. Trials run at most of the final budget
+# (short trials favour optimizers that plateau early); pruning keeps that affordable.
+# Old California runs are moved to outputs/.trash/ first. Takes hours; run detached:
 #   setsid nohup ./scripts/campaigns/full_hpo_comparison.sh > logs/full_hpo.log 2>&1 < /dev/null &
 source "$(dirname "$0")/../lib/common.sh"
 
@@ -72,7 +52,7 @@ for OPT in "${OPTIMIZERS[@]}"; do
     section "TABULAR HPO: $OPT ($N_TRIALS trials x $CAL_HPO_GENERATIONS generations)"
     $HPO --config-name california_mlp_es_exp --dataset tabm_california --model jax/mlp_california \
         --optimizer "$OPT" --n-trials "$N_TRIALS" \
-        --hpo-generations "$CAL_HPO_GENERATIONS" --final-generations "$CAL_GENERATIONS" \
+        --hpo-budget "$CAL_HPO_GENERATIONS" --final-budget "$CAL_GENERATIONS" \
         --population-size-max "$CAL_POP_MAX" --seed "$HPO_SEED" --final-seeds "$SEEDS"
 done
 
@@ -90,7 +70,7 @@ for OPT in "${OPTIMIZERS[@]}"; do
     section "IMAGE HPO: $OPT ($N_TRIALS trials x $MNIST_HPO_GENERATIONS generations)"
     $HPO --config-name mnist_cnn_es_exp --dataset mnist --model jax/cnn_mnist \
         --optimizer "$OPT" --n-trials "$N_TRIALS" \
-        --hpo-generations "$MNIST_HPO_GENERATIONS" --final-generations "$MNIST_GENERATIONS" \
+        --hpo-budget "$MNIST_HPO_GENERATIONS" --final-budget "$MNIST_GENERATIONS" \
         --population-size-max "$MNIST_POP_MAX" --seed "$HPO_SEED" --final-seeds "$SEEDS" \
         --set "fitness_batch_size=$MNIST_FITNESS_BATCH" --set "eval_every_gen=$MNIST_EVAL_EVERY"
 done

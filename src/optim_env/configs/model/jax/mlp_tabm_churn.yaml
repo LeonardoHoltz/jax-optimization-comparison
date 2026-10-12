@@ -1,0 +1,5 @@
+# TabM paper's tuned MLP for churn (references/tabm_mlp.json).
+_target_: optim_env.jax_env.models.linear.MLP
+hidden_dims: [752, 752, 752, 752, 752, 752]
+dout: ${max:${dataset.num_classes},1}
+dropout: 0.0

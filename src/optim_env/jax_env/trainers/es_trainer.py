@@ -15,11 +15,11 @@ from jax.flatten_util import ravel_pytree
 from optim_env.utils.metrics import accuracy
 from optim_env.utils.checkpointing import save_checkpoint
 
-# Some terminologies are a little different for evolution strategies (ES)
-# There are no "epochs" here because there are no batches. Only one optimizer update happens
-# considering the entire training dataset
-
 class ESTrainer:
+    """Trains a model with an evosax evolution strategy. One update per generation, no
+    epochs: each generation scores the whole population on the training set (or on one
+    random mini-batch, with fitness_batch_size)."""
+
     def __init__(self, cfg):
         self.cfg = cfg
         self.logger = logging.getLogger(cfg.exp_name)
@@ -42,12 +42,8 @@ class ESTrainer:
         self.best_params = None
 
     def _compile(self):
-        # Fitness is evaluated for every population member at once (vmap), so the whole
-        # training set is only affordable for small models on tabular data. A convolutional
-        # model over tens of thousands of images needs orders of magnitude more activation
-        # memory than a tabular MLP over the same rows, so `fitness_batch_size` evaluates
-        # each generation on a random mini-batch instead. Left unset, behavior is unchanged:
-        # the full training set, as before.
+        # The whole population is scored at once (vmap); for images or text the full
+        # training set won't fit in GPU memory, hence fitness_batch_size.
         fitness_batch_size = self.cfg.get("fitness_batch_size", None)
         n_train = self.train_X.shape[0]
         if fitness_batch_size is not None and fitness_batch_size < n_train:
@@ -58,8 +54,7 @@ class ESTrainer:
 
         def loss_fn(params, X, y):
             params = self.unravel_fn(params)
-            # Deterministic forward pass: dropout must be inert here since ES fitness
-            # signals need to be a stable function of params, not noisy across candidates.
+            # Dropout off: a candidate's fitness must depend on its weights only.
             pred = self.model.apply(params, X, deterministic=True)
             return self.loss_fn(pred, y)
 
@@ -69,9 +64,8 @@ class ESTrainer:
             if batch_size is None:
                 X, y = self.train_X, self.train_y
             else:
-                # One batch per generation, shared by the whole population: candidates must
-                # be ranked against each other on identical data, or the selection signal is
-                # just batch luck. Resampling across generations is what keeps it unbiased.
+                # One batch per generation, shared by every candidate, so they're ranked
+                # on the same data.
                 idx = jax.random.choice(key_batch, n_train, (batch_size,), replace=False)
                 X, y = self.train_X[idx], self.train_y[idx]
 
@@ -118,7 +112,6 @@ class ESTrainer:
                 f"Generation {self.gen} | train fitness min={fitness_min:.4f}"
             )
 
-            # Evaluation
             if self.gen % self.cfg.get("eval_every_gen", 10) == 0:
                 params = self._get_current_params(self.state)
                 val_loss, val_acc = self.evaluate(params)
@@ -128,24 +121,22 @@ class ESTrainer:
                 
                 self.logger.info(f"Generation {self.gen} | val loss={val_loss:.4f}" + (f" accuracy={val_acc:.4f}" if val_acc is not None else ""))
 
-                # Keep the params that scored best on validation, the same model-selection
-                # rule the SGD trainers use. Not evosax's state.best_solution: that is the
-                # lowest *training* fitness ever seen, which with fitness_batch_size is
-                # just the candidate that drew the easiest mini-batch, and is never
-                # checked against validation at all. A diverged (NaN) run still keeps its
-                # first candidate, so there is always a checkpoint to save.
+                # Keep the best-on-validation candidate, as the SGD trainers do. evosax's
+                # state.best_solution is the best *training* fitness ever seen, which on
+                # mini-batches is the candidate that drew the easiest batch. A NaN run
+                # keeps its first candidate so there is always a checkpoint.
                 if self.best_params is None or val_loss < self.best_fitness:
                     self.best_fitness = float("inf") if math.isnan(val_loss) else val_loss
                     self.best_params = params
                     self.logger.info(f"Generation {self.gen} | New best val loss: {val_loss:.4f}")
 
-        checkpoint_path = os.path.join(self.cfg.save_path, "best_model.msgpack")
-        save_checkpoint(self.unravel_fn(self.best_params), checkpoint_path)
-        self.logger.info(f"Final best model saved to {checkpoint_path}")
+        # HPO trials skip it: they only need the val loss, and big models fill the disk.
+        if self.cfg.get("save_checkpoint", True):
+            checkpoint_path = os.path.join(self.cfg.save_path, "best_model.msgpack")
+            save_checkpoint(self.unravel_fn(self.best_params), checkpoint_path)
+            self.logger.info(f"Final best model saved to {checkpoint_path}")
 
-        # Structured, easily-parseable result for tooling (e.g. tools/hpo.py) that needs
-        # this run's outcome without scraping the text log. best_val_loss is the saved
-        # checkpoint's own validation loss.
+        # Read by tools/hpo.py and the study report; best_val_loss belongs to the checkpoint.
         metrics_path = os.path.join(self.cfg.save_path, "metrics.json")
         with open(metrics_path, "w") as f:
             json.dump({"best_val_loss": self.best_fitness, "generations": self.cfg.generations}, f)
@@ -163,13 +154,8 @@ class ESTrainer:
         return float(val_loss), val_acc
 
     def _get_current_params(self, state):
-        """Best individual as of the *current* generation, the candidate validated (and
-        possibly checkpointed) in `fit`. Distribution-based algorithms have no discrete
-        population -- their current position is the search-distribution mean, which moves
-        (and can get worse) every generation. Population-based algorithms use the current
-        population's own best individual, by the same raw fitness values already logged
-        as "train fitness min" each generation (population/fitness are stored post-`tell`,
-        so they're read consistently)."""
+        """The candidate `fit` validates: the search mean for distribution-based
+        algorithms, the current population's best member for population-based ones."""
         if hasattr(state, "mean"):
             return state.mean
         return state.population[jnp.argmin(state.fitness)]
@@ -177,8 +163,7 @@ class ESTrainer:
     def prepare_dataset(self):
         dataset_manager = instantiate(self.cfg.dataset)
         self.train_ds = dataset_manager.get_train_ds()
-        # Device arrays, not numpy: mini-batch fitness indexes these with a traced index
-        # inside the jitted train_step, which a host-side numpy array can't support.
+        # Device arrays: the jitted train_step indexes them with a traced index.
         self.train_X = jnp.asarray(self.train_ds.X)
         self.train_y = jnp.asarray(self.train_ds.y)
         self.val_ds = dataset_manager.get_val_ds()
@@ -192,133 +177,51 @@ class ESTrainer:
 
         params = self.model.init(init_key, dummy_x)
 
-        # flatten pytree -> vector
         solution, self.unravel_fn = ravel_pytree(params)
 
-        # ---------------------------------------------------------------------------
-        # Background: why ES needs a model-scale-aware initial spread
-        # ---------------------------------------------------------------------------
-        # Problem: every evosax algorithm defaults to a generic, scale-agnostic initial
-        # spread (std=1.0). That default assumes nothing about the search space -- but our
-        # search space IS a neural network's weights, which live on a much smaller scale
-        # set by the init scheme (Kaiming/lecun), not on the "1.0" evosax assumes.
-        #
-        # Example: a 3-layer MLP with ~235K parameters typically has std(weights) ~ 0.07
-        # right after init. Sampling candidates with evosax's default std=1.0 around that
-        # means every candidate is ~14x larger than a normally-scaled set of weights for
-        # this network. Pushed through several ReLU layers, that alone is enough to produce
-        # predictions -- and losses -- in the millions from generation 0, before any real
-        # optimization has happened.
-        #
-        # Fix: compute init_std directly from the freshly-initialized network's own weights,
-        # then thread it through evosax wherever each algorithm *category* exposes a hook for
-        # it (see the three cases marked below). We branch on category (distribution-based vs
-        # population-based, already needed further down for the ask/tell API differences)
-        # plus generic introspection (hasattr/inspect.signature), not on specific algorithm
-        # class names, so this works uniformly for any current or future evosax algorithm.
-        # init_std_multiplier is a hyperparameter-optimization hook: 1.0 keeps exactly the
-        # model-matched scale derived above, but HPO (see tools/hpo.py) can search around
-        # it, since the "correctly matched" scale is still just a heuristic, not
-        # necessarily the optimum for a given algorithm/dataset.
+        # evosax samples with std 1.0 by default; a fresh network's weights have std ~0.07,
+        # so default candidates are ~14x too large and losses start in the millions. Every
+        # algorithm gets a spread matched to the weights instead (init_std_multiplier lets
+        # HPO move it). The three algorithm families take it through different hooks.
         init_std = float(jnp.std(solution)) * float(self.cfg.get("init_std_multiplier", 1.0))
         self.logger.info(f"ES init_std (matched to model's own weight scale): {init_std:.6g}")
 
-        # Case 1 -- constructor-level `std_schedule` (e.g. SimpleGA, Open_ES).
-        # Problem: for these algorithms, the per-generation mutation/perturbation std is not
-        # a runtime Params field we could override later -- it's a schedule function, called
-        # fresh every generation with the current generation index (see e.g. SimpleGA._tell:
-        # `std=self.std_schedule(state.generation_counter)`), fixed once when the strategy
-        # object is constructed (default: constant 1.0, forever).
-        #
-        # The right fix here splits by algorithm *category*, because the two categories use
-        # `std` for mathematically different things and need opposite treatment:
-        #
-        # Population-based (e.g. SimpleGA): mutated offspring directly become the next
-        # generation's population -- there is no separate "take a small, bounded step" layer.
-        # A *constant* schedule (even one correctly matched to the model's scale at generation
-        # 0) is still a fixed-size perturbation applied every generation with nothing shrinking
-        # it over time -- an unconstrained random walk whose typical distance from the start
-        # grows generation over generation, regardless of whether any given step helped. That
-        # is a genuine long-run blowup even though generation 0 itself looked well-scaled.
-        # Fix: decay std quickly (exponential decay to 1% of init_std within the first ~20
-        # generations, then hold near that floor) so the population stops drifting once early
-        # exploration is done.
-        #
-        # Distribution-based (e.g. Open_ES): std does NOT directly become the step size --
-        # it only scales a *gradient estimate* computed from population fitness (see
-        # Open_ES._tell: `grad = dot(fitness, (population - mean) / std) / (population_size *
-        # std)`). std appears in the denominator *twice*. Shrinking std therefore doesn't cool
-        # anything -- it amplifies the gradient estimate's noise, up to 1/std^2. Verified
-        # empirically: applying the same fast decay used for SimpleGA to Open_ES made its val
-        # loss explode from ~0.5 to millions within 300 generations. The actual step size for
-        # these algorithms is already bounded by their own internal optimizer (default
-        # optax.sgd(learning_rate=1e-3)), so std should just stay constant at the model-matched
-        # scale, exactly like Case 2 below does via std_init.
         strategy_cls = get_class(self.cfg.optimizer._target_)
         strategy_init_params = inspect.signature(strategy_cls.__init__).parameters
         strategy_kwargs = {"population_size": self.cfg.optimizer.population_size, "solution": solution}
         if "std_schedule" in strategy_init_params:
+            # Hook 1, constructor std_schedule (SimpleGA, Open_ES), with opposite needs:
+            # - population-based: mutants become the next population, so a constant std
+            #   is a random walk that drifts away. Decay to 1% within ~20 generations.
+            # - distribution-based: std divides the gradient estimate twice, so shrinking it
+            #   amplifies noise (Open_ES went from 0.5 to millions). Keep it constant.
             if issubclass(strategy_cls, PopulationBasedAlgorithm):
                 strategy_kwargs["std_schedule"] = optax.exponential_decay(
                     init_value=init_std, transition_steps=20, decay_rate=0.01, end_value=init_std * 0.01
                 )
             else:
                 strategy_kwargs["std_schedule"] = optax.constant_schedule(init_std)
-        # Another hyperparameter-optimization hook: algorithms that estimate a gradient
-        # from the population (Open_ES, PGPE, SNES, ARS) take that estimate's actual step
-        # via an internal optax optimizer, constructed here rather than left at evosax's
-        # hardcoded default of optax.sgd(learning_rate=1e-3) -- exposed generically via
-        # the same inspect.signature check, not by naming these classes individually.
         if "optimizer" in strategy_init_params:
-            es_lr = float(self.cfg.get("es_learning_rate", 1e-3))
-            strategy_kwargs["optimizer"] = optax.sgd(learning_rate=es_lr)
+            # Algorithms that step along an estimated gradient (Open_ES, PGPE, SNES, ARS).
+            strategy_kwargs["optimizer"] = optax.sgd(learning_rate=float(self.cfg.get("es_learning_rate", 1e-3)))
         self.strategy = strategy_cls(**strategy_kwargs)
-
         self.params = self.strategy.default_params
 
         if isinstance(self.strategy, DistributionBasedAlgorithm):
-            # Case 2 -- distribution-based algorithms with a `std_init` Params field
-            # (e.g. CMA_ES, Sep_CMA_ES).
-            # Problem: here the initial sampling spread IS a runtime-overridable Params
-            # field, called std_init -- but it still defaults to the same generic 1.0.
-            # Example: a CMA-ES-family algorithm sampling with std_init=1.0 around much
-            # smaller-scale weights starts generation 0 already oversized. Its step-size
-            # self-adaptation heuristic then reads the resulting noisy, directionless
-            # progress (typical for a landscape this high-dimensional) as "we're not
-            # converging", and keeps inflating the step size further each generation --
-            # compounding, rather than correcting, the original oversized start.
-            # Fix: override params.std_init to init_std before calling strategy.init(...).
-            # Not every distribution-based algorithm exposes this field (e.g. Open_ES
-            # doesn't -- it's handled by Case 1's std_schedule instead), so this is a
-            # best-effort override via hasattr, not a hard requirement.
+            # Hook 2, the std_init param (CMA-ES family). An oversized start makes their
+            # step-size adaptation keep growing the step instead of correcting it.
             if hasattr(self.params, "std_init"):
                 self.params = self.params.replace(std_init=init_std)
             self.state = self.strategy.init(self.key, solution, self.params)
         elif isinstance(self.strategy, PopulationBasedAlgorithm):
-            # Case 3 -- population-based algorithms seeded with duplicate individuals
-            # (e.g. PSO, SimpleGA).
-            # Problem: the population must be seeded with an explicit initial population
-            # array (there's no single "mean" to start from), and doing that by tiling
-            # the same solution population_size times gives every individual an
-            # identical starting point -- zero diversity to search with.
-            # Example: PSO's velocity update is
-            #   velocity = inertia*velocity + cognitive*r1*(personal_best - member)
-            #                                + social*r2*(global_best - member)
-            # With every particle starting at the same point, personal_best equals member
-            # and global_best equals member for every particle, so both difference terms
-            # are exactly zero. Velocity starts at zero and stays at zero forever -- the
-            # particles have no way to start moving.
-            # Fix: seed the initial population as solution + init_std * Gaussian noise
-            # instead of exact duplicates, so there is real diversity for the algorithm's
-            # ask/tell dynamics to work with from generation 0.
+            # Hook 3, the initial population. Identical copies give PSO zero velocity
+            # forever (every difference term is zero), so start from noisy copies.
             self.key, pop_key = jax.random.split(self.key)
             noise = init_std * jax.random.normal(pop_key, (self.strategy.population_size, solution.shape[0]))
-            init_pop = solution[None, :] + noise
             init_fitness = jnp.full(self.strategy.population_size, jnp.inf)
-            self.state = self.strategy.init(self.key, init_pop, init_fitness, self.params)
+            self.state = self.strategy.init(self.key, solution[None, :] + noise, init_fitness, self.params)
         else:
-            # Fallback to base EvolutionaryAlgorithm signature (key, params)
             self.state = self.strategy.init(self.key, self.params)
-    
+
     def prepare_loss_fn(self):
         self.loss_fn = instantiate(self.cfg.loss)

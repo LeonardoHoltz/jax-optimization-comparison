@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import QuantileTransformer
 
 from .default import DataModule
 
@@ -11,9 +12,15 @@ class TabMDataModule(DataModule):
     per-split X_num_*.npy / X_bin_*.npy / X_cat_*.npy / Y_*.npy files plus an info.json.
     Every split present on disk (train, val, and test when available) is exposed as-is
     via train_data/val_data/test_data -- no random re-splitting.
+
+    num_policy="noisy-quantile" reproduces the TabM paper's preprocessing (copied from
+    its lib/data.py): numeric columns only, quantile-mapped to a normal distribution,
+    constant columns dropped, regression targets standardized. Leave it None to use the
+    older `normalize` path, which standardizes every column.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, num_policy=None, **kwargs):
+        self.num_policy = num_policy
         super().__init__(*args, **kwargs)
         self.logger.info(f"TabM Dataset {self.name} loaded. Shape info:")
         self.logger.info(f"Train: {self.train_data['X'].shape}, Val: {self.val_data['X'].shape}")
@@ -32,12 +39,14 @@ class TabMDataModule(DataModule):
         per_split = self._load_raw(ds_dir)
 
         for split, (X, y) in per_split.items():
-            X = X.astype(np.float32)
-            self._check_features(X)
             y = y.astype(np.int32) if self.num_classes > 0 else y.astype(np.float32)
-            per_split[split] = (X, y)
+            per_split[split] = (X.astype(np.float32), y)
 
-        if self.normalize:
+        if self.num_policy == "noisy-quantile":
+            self._noisy_quantile(per_split)
+        elif self.num_policy is not None:
+            raise ValueError(f"Unknown num_policy '{self.num_policy}'")
+        elif self.normalize:
             # Fit standardization stats on train only, then apply them to every split, so
             # nothing about val/test leaks into training. tools/test.py uses _y_std to
             # report regression error back in the target's original units.
@@ -52,6 +61,7 @@ class TabMDataModule(DataModule):
                     y = (((y.reshape(-1, 1) - self._y_mean) / self._y_std).reshape(-1)).astype(np.float32)
                 per_split[split] = (X.astype(np.float32), y)
 
+        self._check_features(per_split["train"][0])
         self.train_data = {"X": per_split["train"][0], "y": per_split["train"][1]}
         self.val_data = {"X": per_split["val"][0], "y": per_split["val"][1]} if "val" in per_split else None
         self.test_data = {"X": per_split["test"][0], "y": per_split["test"][1]} if "test" in per_split else None
@@ -59,6 +69,30 @@ class TabMDataModule(DataModule):
         # Kept only for introspection/logging -- the pooled view of every split found.
         self.X = np.concatenate([X for X, _ in per_split.values()])
         self.y = np.concatenate([y for _, y in per_split.values()])
+
+    def _noisy_quantile(self, per_split):
+        n = self._n_num
+        train_num = per_split["train"][0][:, :n]
+        if n:
+            qt = QuantileTransformer(
+                n_quantiles=max(min(len(train_num) // 30, 1000), 10),
+                output_distribution="normal",
+                subsample=1_000_000_000,
+                random_state=self.seed,
+            )
+            noise = np.random.RandomState(self.seed).normal(0.0, 1e-5, train_num.shape)
+            qt.fit(train_num + noise.astype(np.float32))
+            keep = np.array([len(np.unique(c)) > 1 for c in train_num.T])
+
+        if self.num_classes == 0:
+            _, self._y_mean, self._y_std = self._standardize(per_split["train"][1].reshape(-1, 1))
+
+        for split, (X, y) in per_split.items():
+            num = np.nan_to_num(qt.transform(X[:, :n]))[:, keep] if n else X[:, :0]
+            X = np.concatenate([num, X[:, n:]], axis=1).astype(np.float32)
+            if self.num_classes == 0:
+                y = ((y.reshape(-1, 1) - self._y_mean) / self._y_std).reshape(-1).astype(np.float32)
+            per_split[split] = (X, y)
 
     def _raw_files_present(self, ds_dir):
         return any((ds_dir / f"Y_{split}.npy").exists() for split in SPLITS)
@@ -85,8 +119,10 @@ class TabMDataModule(DataModule):
                     parts.append(np.load(path, allow_pickle=True))
 
         feature_blocks = []
+        self._n_num = 0
         if num_parts:
             feature_blocks.append(np.concatenate(num_parts).astype(np.float32))
+            self._n_num = feature_blocks[0].shape[1]
         if bin_parts:
             feature_blocks.append(np.concatenate(bin_parts).astype(np.float32))
         if cat_parts:

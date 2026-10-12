@@ -1,0 +1,5 @@
+# The study's "simple" tabular model: two hidden layers of 64 units, no dropout.
+_target_: optim_env.jax_env.models.linear.MLP
+hidden_dims: [64, 64]
+dout: ${max:${dataset.num_classes},1}
+dropout: 0.0

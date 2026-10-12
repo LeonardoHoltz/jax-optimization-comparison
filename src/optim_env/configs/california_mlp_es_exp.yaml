@@ -1,10 +1,5 @@
-# Same MLP/California Housing setup as california_mlp_sgd_exp.yaml, trained with
-# evosax evolutionary-strategy optimizers instead of gradient descent. ES training
-# is full-batch per generation (see ESTrainer), so batch_size in the dataset config
-# is unused here.
-# Default optimizer is sep_cma_es (diagonal-covariance CMA-ES), not the full-covariance
-# cma_es used elsewhere in this repo: mlp_california has ~235K parameters, and full CMA-ES's
-# O(D^2) covariance matrix would need ~220GB at that dimensionality.
+# California MLP trained by evosax instead of gradient descent. Defaults to sep_cma_es:
+# full CMA-ES would need a ~220 GB covariance matrix for this 235K-parameter model.
 framework: jax
 method: NE
 seed: 0

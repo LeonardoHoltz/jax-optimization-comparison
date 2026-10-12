@@ -1,0 +1,11 @@
+# Token ids for models with an embedding layer (prepare_dataset.text writes the data).
+_target_: optim_env.datasets.text.TextDataModule
+name: ag_news
+features: tokens
+vocab_size: 50002
+num_features: 100
+num_classes: 4
+root: data/text
+val_split: 0.0
+batch_size: 64
+seed: ${seed}

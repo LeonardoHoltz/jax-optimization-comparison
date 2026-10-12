@@ -6,6 +6,8 @@ import numpy as np
 from flax.training import train_state
 from torch.utils.tensorboard import SummaryWriter
 from lerna.core.hydra_config import HydraConfig
+import json
+import math
 import os
 from optim_env.utils.metrics import accuracy
 from optim_env.utils.checkpointing import save_checkpoint
@@ -30,6 +32,8 @@ class SGDTrainer:
         self.logger.info(" => Compiling JIT functions ...")
         self._compile()
         self.best_loss = float('inf')
+        self.best_state = None
+        self.best_epoch = None
 
     def _compile(self):
         def train_step(state, x, y, dropout_rng):
@@ -54,37 +58,42 @@ class SGDTrainer:
         self.eval_step = jax.jit(eval_step)
 
     def fit(self):
+        # patience: stop after this many epochs without a better val loss (TabM uses 16).
+        # null trains for the full `epochs`.
+        patience = self.cfg.get("patience", None)
+        stale = 0
         for self.epoch in range(self.cfg.epochs):
-            epoch_train_loss = self.run_train_epoch()
-            epoch_train_loss = float(epoch_train_loss)
-        
-            self.logger.info(
-                f"Epoch {self.epoch} | train={epoch_train_loss:.4f}"
-            )
-            self.writer.add_scalar(
-                "train/loss_epoch",
-                epoch_train_loss,
-                self.epoch
-            )
+            epoch_train_loss = float(self.run_train_epoch())
+            self.logger.info(f"Epoch {self.epoch} | train={epoch_train_loss:.4f}")
+            self.writer.add_scalar("train/loss_epoch", epoch_train_loss, self.epoch)
 
-            # Evaluation
             val_loss, val_acc = self.evaluate()
             self.writer.add_scalar("val/loss", val_loss, self.epoch)
             if val_acc is not None:
                 self.writer.add_scalar("val/accuracy", val_acc, self.epoch)
-            
             self.logger.info(f"Epoch {self.epoch} | val loss={val_loss:.4f}" + (f" accuracy={val_acc:.4f}" if val_acc is not None else ""))
 
-            # Track best model in memory
-            if val_loss < self.best_loss:
-                self.best_loss = val_loss
+            if self.best_state is None or val_loss < self.best_loss:
+                self.best_loss = float("inf") if math.isnan(val_loss) else val_loss
                 self.best_state = self.state
+                self.best_epoch = self.epoch
+                stale = 0
                 self.logger.info(f"Epoch {self.epoch} | New best val loss: {val_loss:.4f}")
+            else:
+                stale += 1
+                if patience is not None and stale >= patience:
+                    self.logger.info(f"Early stop at epoch {self.epoch}: no improvement for {patience} epochs")
+                    break
 
-        if hasattr(self, 'best_state') and self.best_state is not None:
+        if self.cfg.get("save_checkpoint", True):
             checkpoint_path = os.path.join(self.cfg.save_path, "best_model.msgpack")
             save_checkpoint(self.best_state, checkpoint_path)
             self.logger.info(f"Final best model saved to {checkpoint_path}")
+
+        # Read by tools/hpo.py and the study report.
+        with open(os.path.join(self.cfg.save_path, "metrics.json"), "w") as f:
+            json.dump({"best_val_loss": self.best_loss, "best_epoch": self.best_epoch,
+                       "epochs_run": self.epoch + 1}, f)
 
         self.writer.close()
 

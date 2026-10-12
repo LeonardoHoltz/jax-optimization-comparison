@@ -1,0 +1,11 @@
+# Token ids for models with an embedding layer (prepare_dataset.text writes the data).
+_target_: optim_env.datasets.text.TextDataModule
+name: sst2
+features: tokens
+vocab_size: 13806
+num_features: 64
+num_classes: 2
+root: data/text
+val_split: 0.0
+batch_size: 50
+seed: ${seed}

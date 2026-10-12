@@ -1,0 +1,10 @@
+# TabM paper preprocessing (noisy-quantile numeric features) and batch size.
+_target_: optim_env.datasets.tabm.TabMDataModule
+name: higgs-small
+num_features: 28
+num_classes: 2
+root: data/tabm
+val_split: 0.0
+batch_size: 512
+seed: ${seed}
+num_policy: noisy-quantile

@@ -1,0 +1,10 @@
+# TabM paper preprocessing (noisy-quantile numeric features) and batch size.
+_target_: optim_env.datasets.tabm.TabMDataModule
+name: adult
+num_features: 107
+num_classes: 2
+root: data/tabm
+val_split: 0.0
+batch_size: 256
+seed: ${seed}
+num_policy: noisy-quantile

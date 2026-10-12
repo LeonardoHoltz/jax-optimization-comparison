@@ -1,0 +1,5 @@
+# TabM paper's tuned MLP for higgs-small (references/tabm_mlp.json).
+_target_: optim_env.jax_env.models.linear.MLP
+hidden_dims: [272, 272, 272, 272]
+dout: ${max:${dataset.num_classes},1}
+dropout: 0.4835965246078274

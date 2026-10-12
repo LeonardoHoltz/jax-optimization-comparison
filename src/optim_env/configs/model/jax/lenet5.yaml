@@ -1,0 +1,2 @@
+_target_: optim_env.jax_env.models.cnn.LeNet5
+dout: ${max:${dataset.num_classes},1}

@@ -1,0 +1,99 @@
+# Reproduction study (scripts/campaigns/reproduction_study.py). Per task and model
+# (paper, simple): gradient and each ES optimizer, untuned over 5 seeds and tuned
+# (20-trial search, then 5 seeds). "simple" reuses the paper model's untuned settings.
+
+seeds: [0, 1, 2, 3, 4]
+hpo_seed: 0
+n_trials: 20
+gradient_optimizer: jax/adamw_clip
+es_optimizers:
+  - jax/sep_cma_es
+  - jax/cma_es
+  - jax/cr_fm_nes
+  - jax/snes
+  - jax/open_es
+  - jax/pgpe
+  - jax/ars
+  - jax/particle_swarm
+  - jax/simple_ga
+  - jax/differential_evolution
+# fitness_batch_size: ES scores the whole population at once; above ~0.5M parameters
+# the full training set no longer fits in 8 GB, so those tasks score a random batch.
+# Full CMA-ES keeps a D x D covariance matrix; above this size it can't fit or run.
+cma_es_max_params: 7000
+# Combinations that don't fit in this GPU's 8 GB; listed in the report's Skipped sheet.
+skip:
+  churn/paper/jax/cr_fm_nes: "out of GPU memory: CR-FM-NES needs ~3 GB of state for 64 candidates of 2.85M weights"
+  # Chosen 2026-10-12: ~61 GPU hours for a 4.9M-weight model that ES can't be expected to train.
+  sst2/paper/*: "skipped by choice: Kim CNN has 4.9M weights; ES would take ~61 GPU hours"
+
+tasks:
+  # ---- tabular: TabM data, splits and preprocessing; targets in references/tabm_mlp.json
+  california:
+    reference: {file: tabm_mlp.json, key: california}
+    loss: jax/mse
+    paper: {dataset: tabm_california_quantile, model: jax/mlp_tabm_california}
+    simple: {dataset: tabm_california_quantile, model: jax/mlp_small}
+    sgd: {learning_rate: 0.0005635553682721966, weight_decay: 0.028758690586743314, epochs: 1000, patience: 16, lr_min: 3.0e-5, lr_max: 1.0e-3}
+    es: {generations: 1000, hpo_generations: 500, eval_every_gen: 10, fitness_batch_size: null, population_size_max: 96}
+  adult:
+    reference: {file: tabm_mlp.json, key: adult}
+    loss: jax/cross_entropy
+    paper: {dataset: tabm_adult_quantile, model: jax/mlp_tabm_adult}
+    simple: {dataset: tabm_adult_quantile, model: jax/mlp_small}
+    sgd: {learning_rate: 0.00010632258766605092, weight_decay: 0.07951092079903721, epochs: 1000, patience: 16, lr_min: 3.0e-5, lr_max: 1.0e-3}
+    es: {generations: 1000, hpo_generations: 500, eval_every_gen: 10, fitness_batch_size: 4096, population_size_max: 96}
+  higgs_small:
+    reference: {file: tabm_mlp.json, key: higgs-small}
+    loss: jax/cross_entropy
+    paper: {dataset: tabm_higgs_small_quantile, model: jax/mlp_tabm_higgs_small}
+    simple: {dataset: tabm_higgs_small_quantile, model: jax/mlp_small}
+    sgd: {learning_rate: 0.00018500465432848707, weight_decay: 0.0027971359970154624, epochs: 1000, patience: 16, lr_min: 3.0e-5, lr_max: 1.0e-3}
+    es: {generations: 1000, hpo_generations: 500, eval_every_gen: 10, fitness_batch_size: 4096, population_size_max: 96}
+  churn:
+    reference: {file: tabm_mlp.json, key: churn}
+    loss: jax/cross_entropy
+    paper: {dataset: tabm_churn_quantile, model: jax/mlp_tabm_churn}
+    simple: {dataset: tabm_churn_quantile, model: jax/mlp_small}
+    sgd: {learning_rate: 0.0005068237351535733, weight_decay: 0.0, epochs: 1000, patience: 16, lr_min: 3.0e-5, lr_max: 1.0e-3}
+    es: {generations: 1000, hpo_generations: 500, eval_every_gen: 10, fitness_batch_size: 2048, population_size_max: 64}
+  house:
+    reference: {file: tabm_mlp.json, key: house}
+    loss: jax/mse
+    paper: {dataset: tabm_house_quantile, model: jax/mlp_tabm_house}
+    simple: {dataset: tabm_house_quantile, model: jax/mlp_small}
+    sgd: {learning_rate: 0.0007119922227526061, weight_decay: 0.0012496869259842863, epochs: 1000, patience: 16, lr_min: 3.0e-5, lr_max: 1.0e-3}
+    es: {generations: 1000, hpo_generations: 500, eval_every_gen: 10, fitness_batch_size: 4096, population_size_max: 96}
+
+  # ---- image: no published training recipe for these exact models, so the untuned
+  # gradient runs use common AdamW defaults.
+  mnist:
+    reference: {file: papers.yaml, key: mnist}
+    loss: jax/cross_entropy
+    paper: {dataset: mnist, model: jax/lenet5}
+    simple: {dataset: mnist, model: jax/cnn_mnist}
+    sgd: {learning_rate: 0.001, weight_decay: 0.0001, epochs: 100, patience: 10, lr_min: 1.0e-4, lr_max: 1.0e-2}
+    es: {generations: 2000, hpo_generations: 1000, eval_every_gen: 50, fitness_batch_size: 256, population_size_max: 64}
+  fashion_mnist:
+    reference: {file: papers.yaml, key: fashion_mnist}
+    loss: jax/cross_entropy
+    paper: {dataset: fashion_mnist, model: jax/lenet5}
+    simple: {dataset: fashion_mnist, model: jax/cnn_mnist}
+    sgd: {learning_rate: 0.001, weight_decay: 0.0001, epochs: 100, patience: 10, lr_min: 1.0e-4, lr_max: 1.0e-2}
+    es: {generations: 2000, hpo_generations: 1000, eval_every_gen: 50, fitness_batch_size: 256, population_size_max: 64}
+
+  # ---- text: "simple" is a linear model on averaged GloVe vectors.
+  ag_news:
+    reference: {file: papers.yaml, key: ag_news}
+    loss: jax/cross_entropy
+    paper: {dataset: ag_news_tokens, model: jax/fasttext}
+    simple: {dataset: ag_news_glove, model: jax/linear}
+    sgd: {learning_rate: 0.001, weight_decay: 0.0, epochs: 50, patience: 5, lr_min: 1.0e-4, lr_max: 1.0e-1}
+    es: {generations: 2000, hpo_generations: 1000, eval_every_gen: 50, fitness_batch_size: 256, population_size_max: 64}
+  sst2:
+    reference: {file: papers.yaml, key: sst2}
+    loss: jax/cross_entropy
+    paper: {dataset: sst2_tokens, model: jax/kim_cnn}
+    simple: {dataset: sst2_glove, model: jax/linear}
+    sgd: {learning_rate: 0.001, weight_decay: 0.0, epochs: 50, patience: 5, lr_min: 1.0e-4, lr_max: 1.0e-2}
+    es: {generations: 2000, hpo_generations: 1000, eval_every_gen: 50, fitness_batch_size: 256, population_size_max: 32, population_size: 32}

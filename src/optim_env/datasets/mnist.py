@@ -2,19 +2,11 @@ import numpy as np
 
 from .default import DataModule
 
-MIRROR = "https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz"
-
-
 class MNISTDataModule(DataModule):
-    """MNIST from the standard mnist.npz bundle.
+    """MNIST, or Fashion-MNIST (name: fashion_mnist), from an mnist.npz bundle.
 
-    Keeps the official 10k test set as the test split and carves a validation split off
-    the 60k training set, so the test set stays untouched by model selection.
-
-    Images are flattened to 784 features to satisfy the shared DataModule/loader contract
-    (everything downstream, including the collate functions, assumes 2-D X). Convolutional
-    models reshape back to (28, 28, 1) internally from their `input_shape` config, which
-    keeps the image layout a property of the model rather than of the data pipeline.
+    Official 10K test set; validation is carved from the 60K training images. Images are
+    flattened to 784 columns, and the CNN models reshape them back.
     """
 
     def __init__(self, *args, val_size: int = 10000, **kwargs):
@@ -27,8 +19,8 @@ class MNISTDataModule(DataModule):
         npz_path = self.root / self.name / "mnist.npz"
         if not npz_path.exists():
             raise FileNotFoundError(
-                f"MNIST was not found at {npz_path}. Download it first with:\n"
-                f"  curl -sL --create-dirs -o {npz_path} {MIRROR}"
+                f"{self.name} was not found at {npz_path}. Download it first with:\n"
+                f"  pixi run python -m optim_env.prepare_dataset.images --name {self.name} --root {self.root}"
             )
 
         with np.load(npz_path) as d:

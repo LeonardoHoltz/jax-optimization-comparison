@@ -1,14 +1,8 @@
 """Per-layer hidden activations from a trained model, for representation analysis.
 
-Returns post-activation (post-ReLU) values, which is what "this unit is dead" or "these
-two units respond alike" actually refer to. The output layer is excluded -- it has no
-activation function and its width is the task's, not a learned representation.
-
-JAX side: Flax's capture_intermediates records each submodule's __call__ output, which for
-this MLP is the Dense output *before* ReLU (ReLU is applied in MLP.__call__, outside the
-submodule). Post-ReLU is also recoverable from the Dropout submodule's output, but only
-when dropout > 0 -- so ReLU is applied here instead, which works either way.
-Torch side: forward hooks on the nn.ReLU modules give post-activation values directly.
+Returns post-ReLU values per hidden layer; the output layer is left out. On the JAX side
+Flax captures each layer before its ReLU, so ReLU is applied here; on the torch side,
+hooks on nn.ReLU return post-ReLU values directly.
 """
 
 import numpy as np
