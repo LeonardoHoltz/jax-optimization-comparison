@@ -101,3 +101,34 @@ def test_tabm_datamodule_raises_when_missing(tmp_path):
             batch_size=2,
             seed=0,
         )
+
+
+def _fake_tabm_tar(tmp_path, monkeypatch, extra_member=None):
+    import io
+    import tarfile
+
+    from optim_env.prepare_dataset import huggingface
+
+    tar_path = tmp_path / "data.tar"
+    with tarfile.open(tar_path, "w") as tar:
+        for name in ("california/Y_test.npy", "adult/Y_test.npy", extra_member):
+            if name:
+                tar.addfile(tarfile.TarInfo(name), io.BytesIO())
+    monkeypatch.setattr(huggingface, "hf_hub_download", lambda *a, **k: str(tar_path))
+    return huggingface
+
+
+def test_tabm_download_extracts_only_named_datasets(tmp_path, monkeypatch):
+    huggingface = _fake_tabm_tar(tmp_path, monkeypatch)
+    huggingface.download(["california"], tmp_path / "out")
+    assert (tmp_path / "out" / "california" / "Y_test.npy").exists()
+    assert not (tmp_path / "out" / "adult").exists()
+    with pytest.raises(ValueError, match="house"):
+        huggingface.download(["house"], tmp_path / "out")
+
+
+def test_tabm_download_refuses_paths_outside_root(tmp_path, monkeypatch):
+    huggingface = _fake_tabm_tar(tmp_path, monkeypatch, extra_member="california/../../evil.txt")
+    with pytest.raises(ValueError, match="unsafe"):
+        huggingface.download(["california"], tmp_path / "out")
+    assert not (tmp_path / "evil.txt").exists()

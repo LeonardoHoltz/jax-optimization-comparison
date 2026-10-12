@@ -9,6 +9,8 @@ run_rel: runs/${dataset.name}/${framework}_${method}/${algorithm}/${variant}/see
 run_dir: outputs/${run_rel}
 exp_name: ${framework}_${method}_${algorithm}_${variant}_${dataset.name}
 save_path: ${run_dir}
+# tools/hpo.py turns this off for search trials.
+save_checkpoint: true
 
 hydra:
   job:

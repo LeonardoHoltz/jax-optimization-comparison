@@ -112,7 +112,8 @@ class ESTrainer:
                 f"Generation {self.gen} | train fitness min={fitness_min:.4f}"
             )
 
-            if self.gen % self.cfg.get("eval_every_gen", 10) == 0:
+            # The last generation is checked too, so its weights can become the checkpoint.
+            if self.gen % self.cfg.get("eval_every_gen", 10) == 0 or self.gen == self.cfg.generations - 1:
                 params = self._get_current_params(self.state)
                 val_loss, val_acc = self.evaluate(params)
                 self.writer.add_scalar("val/loss", val_loss, self.gen)
@@ -220,8 +221,6 @@ class ESTrainer:
             noise = init_std * jax.random.normal(pop_key, (self.strategy.population_size, solution.shape[0]))
             init_fitness = jnp.full(self.strategy.population_size, jnp.inf)
             self.state = self.strategy.init(self.key, solution[None, :] + noise, init_fitness, self.params)
-        else:
-            self.state = self.strategy.init(self.key, self.params)
 
     def prepare_loss_fn(self):
         self.loss_fn = instantiate(self.cfg.loss)

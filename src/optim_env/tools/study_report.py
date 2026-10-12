@@ -8,6 +8,7 @@ notes page shows).
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -121,7 +122,10 @@ def main():
     timings_path = ROOT / "outputs" / "study" / args.study / "timings.csv"
 
     out = report_dir / f"{args.study}.xlsx"
-    with pd.ExcelWriter(out, engine="openpyxl") as xw:
+    # Written aside, then renamed: two study drivers may rebuild the report at once, and a
+    # reader must never see a half-written file.
+    tmp = out.with_suffix(f".{os.getpid()}.tmp")
+    with pd.ExcelWriter(tmp, engine="openpyxl") as xw:
         pd.DataFrame(README, columns=["item", "meaning"]).to_excel(xw, sheet_name="Read me", index=False)
         pd.DataFrame(summary).to_excel(xw, sheet_name="Overview", index=False)
         for task, table in sheets.items():
@@ -135,6 +139,7 @@ def main():
             for col in ws.columns:
                 width = max(len(str(c.value)) if c.value is not None else 0 for c in col)
                 ws.column_dimensions[col[0].column_letter].width = min(max(10, width + 2), 80)
+    os.replace(tmp, out)
 
     (report_dir / f"{args.study}_summary.json").write_text(json.dumps(
         {"overview": summary, "tasks": {k: v.to_dict("records") for k, v in sheets.items()}, "skipped": skipped},

@@ -1,4 +1,6 @@
+import json
 import logging
+import math
 import os
 
 import torch
@@ -30,35 +32,48 @@ class SGDTrainer:
         self.logger.info(" => Creating loss fn ...")
         self.prepare_loss_fn()
         self.best_loss = float("inf")
+        self.best_state_dict = None
+        self.best_epoch = None
 
     def fit(self):
+        # Same rules as the JAX SGDTrainer: patience early stopping, a NaN run still keeps
+        # its first epoch as the checkpoint, and metrics.json for tools/hpo.py.
+        patience = self.cfg.get("patience", None)
+        stale = 0
         for self.epoch in range(self.cfg.epochs):
             epoch_train_loss = self.run_train_epoch()
-
             self.logger.info(f"Epoch {self.epoch} | train={epoch_train_loss:.4f}")
             self.writer.add_scalar("train/loss_epoch", epoch_train_loss, self.epoch)
 
-            # Evaluation
             val_loss, val_acc = self.evaluate()
             self.writer.add_scalar("val/loss", val_loss, self.epoch)
             if val_acc is not None:
                 self.writer.add_scalar("val/accuracy", val_acc, self.epoch)
-
             self.logger.info(
                 f"Epoch {self.epoch} | val loss={val_loss:.4f}"
                 + (f" accuracy={val_acc:.4f}" if val_acc is not None else "")
             )
 
-            # Track best model in memory
-            if val_loss < self.best_loss:
-                self.best_loss = val_loss
+            if self.best_state_dict is None or val_loss < self.best_loss:
+                self.best_loss = float("inf") if math.isnan(val_loss) else val_loss
                 self.best_state_dict = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
+                self.best_epoch = self.epoch
+                stale = 0
                 self.logger.info(f"Epoch {self.epoch} | New best val loss: {val_loss:.4f}")
+            else:
+                stale += 1
+                if patience is not None and stale >= patience:
+                    self.logger.info(f"Early stop at epoch {self.epoch}: no improvement for {patience} epochs")
+                    break
 
-        if hasattr(self, "best_state_dict") and self.best_state_dict is not None:
+        if self.cfg.get("save_checkpoint", True):
             checkpoint_path = os.path.join(self.cfg.save_path, "best_model.pt")
             save_checkpoint(self.best_state_dict, checkpoint_path)
             self.logger.info(f"Final best model saved to {checkpoint_path}")
+
+        with open(os.path.join(self.cfg.save_path, "metrics.json"), "w") as f:
+            json.dump({"best_val_loss": self.best_loss, "best_epoch": self.best_epoch,
+                       "epochs_run": self.epoch + 1}, f)
 
         self.writer.close()
 

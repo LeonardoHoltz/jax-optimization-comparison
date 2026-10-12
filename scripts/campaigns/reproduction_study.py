@@ -12,6 +12,7 @@ task it evaluates the test split and rebuilds outputs/reports/<study>/<study>.xl
 
 import argparse
 import csv
+import fcntl
 import json
 import os
 import subprocess
@@ -156,10 +157,16 @@ class Study:
         self.evaluate(task)
 
     def note_skip(self, task, arch, opt, reason):
+        # Two drivers (one per GPU) may add entries at once: the lock stops lost updates,
+        # and the rename means the report never reads a half-written file.
         path = self.dir / "skipped.json"
-        skipped = json.loads(path.read_text()) if path.exists() else {}
-        skipped[f"{task}/{arch}/{label(opt)}"] = reason
-        path.write_text(json.dumps(skipped, indent=2))
+        with open(self.dir / "skipped.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            skipped = json.loads(path.read_text()) if path.exists() else {}
+            skipped[f"{task}/{arch}/{label(opt)}"] = reason
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(skipped, indent=2))
+            os.replace(tmp, path)
 
     def evaluate(self, task):
         t = self.cfg.tasks[task]
@@ -169,7 +176,7 @@ class Study:
         self.call([PY, "src/optim_env/tools/test.py", *globs, "--campaign", task, "--output-dir", str(self.reports)],
                   f"{task}.test", f"{task} test-set evaluation")
         self.call([PY, "src/optim_env/tools/study_report.py", "--study", self.name, "--config", str(CONFIGS / "study" / "reproduction.yaml")],
-                  "report", "XLSX report")
+                  f"{task}.report", "XLSX report")
 
 
 def main():

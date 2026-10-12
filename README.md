@@ -190,6 +190,9 @@ pixi run python src/optim_env/tools/test.py 'outputs/runs/california/jax_NE/*/*/
 
 # Hyperparameter search for one ES optimizer
 pixi run python src/optim_env/tools/hpo.py --optimizer jax/sep_cma_es --n-trials 20
+
+# Image models: draw the input that most excites each unit (default: one image per class)
+pixi run python src/optim_env/tools/visualize_neurons.py RUN_DIR [--layer Conv_1 --units 0 1 2]
 ```
 
 ## 📊 Outputs
@@ -250,8 +253,8 @@ pixi run python -m optim_env.prepare_dataset.pmlb_dataset --name penguins --root
 
 # Hugging Face — the TabM benchmark datasets, mirrored at
 # https://huggingface.co/datasets/rototoHF/tabm-data
-pixi run python -m optim_env.prepare_dataset.huggingface --repo-id rototoHF/tabm-data --name california --root data/tabm
-pixi run python -m optim_env.prepare_dataset.huggingface --repo-id rototoHF/tabm-data --name adult --root data/tabm
+# (one pinned 1 GB archive; only the named datasets are extracted)
+pixi run python -m optim_env.prepare_dataset.huggingface --name california adult higgs-small churn house --root data/tabm
 ```
 
 Image and text datasets, and the TabM reference scores (every source pinned and
@@ -279,6 +282,7 @@ src/optim_env/
     base/           run_layout.yaml — the shared output-path layout
   tools/            train.py, test.py, hpo.py entry points
   analysis/         Loading finished runs back for analysis
+  interpretability/ What a trained model learned (activation maximization)
   prepare_dataset/  Dataset download CLIs
   paths.py          Canonical output locations for tooling
 scripts/            Campaign scripts and shared shell helpers

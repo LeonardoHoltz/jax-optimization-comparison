@@ -83,3 +83,27 @@ def test_hpo_best_params_map_back_to_overrides():
     assert sgd == {"learning_rate": 1e-3, "weight_decay": 1e-4, "model.dropout": 0.2}
     ne = hpo.search_space(Args, "NE")(optuna.trial.FixedTrial({"population_size": 32, "init_std_multiplier": 1.0, "es_learning_rate": 0.01}))
     assert ne == {"optimizer.population_size": 32, "init_std_multiplier": 1.0, "es_learning_rate": 0.01}
+
+
+def test_test_tool_reports_rmse_in_target_units(tmp_path, monkeypatch):
+    from omegaconf import OmegaConf
+
+    from optim_env.tools import test as test_tool
+
+    _tabm_files(tmp_path, np.random.default_rng(0))
+    dataset = {"_target_": "optim_env.datasets.tabm.TabMDataModule", "name": ".", "root": str(tmp_path),
+               "num_features": None, "num_classes": 0, "val_split": None, "batch_size": 8, "seed": 0,
+               "num_policy": "noisy-quantile"}
+    run = tmp_path / "run"
+    (run / ".hydra").mkdir(parents=True)
+    (run / "best_model.msgpack").touch()
+    OmegaConf.save({"exp_name": "x", "seed": 0, "dataset": dataset, "trainer": {"_target_": "jax.SGDTrainer"},
+                    "optimizer": {"_target_": "optax.adamw"}}, run / ".hydra" / "config.yaml")
+
+    # Predictions 0.1 off in training units (standardized targets).
+    monkeypatch.setattr(test_tool, "load_run", lambda d: None)
+    y_test = test_tool.load_dataset(OmegaConf.create({"dataset": dataset})).get_test_ds().y
+    monkeypatch.setattr(test_tool, "predict", lambda _, X: y_test + 0.1)
+
+    y_train = np.load(tmp_path / "Y_train.npy")
+    assert test_tool.evaluate_run(run)["rmse"] == pytest.approx(0.1 * y_train.std(), rel=1e-4)

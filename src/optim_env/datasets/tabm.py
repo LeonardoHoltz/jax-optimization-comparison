@@ -33,7 +33,7 @@ class TabMDataModule(DataModule):
             raise FileNotFoundError(
                 f"TabM dataset '{self.name}' was not found at {ds_dir}. Download it first with:\n"
                 f"  pixi run python -m optim_env.prepare_dataset.huggingface "
-                f"--repo-id rototoHF/tabm-data --name {self.name} --root {self.root}"
+                f"--name {self.name} --root {self.root}"
             )
 
         per_split = self._load_raw(ds_dir)

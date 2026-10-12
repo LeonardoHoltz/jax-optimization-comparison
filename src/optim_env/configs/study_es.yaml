@@ -7,7 +7,6 @@ eval_every_gen: 10
 fitness_batch_size: null
 init_std_multiplier: 1.0
 es_learning_rate: 0.001
-save_checkpoint: true
 
 defaults:
   - base/run_layout
