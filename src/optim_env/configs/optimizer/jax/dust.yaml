@@ -1,0 +1,10 @@
+# @package _global_
+# DUST needs its own trainer, so picking this optimizer also picks it.
+defaults:
+  - override /trainer: jax/dust_trainer
+
+optimizer:
+  _target_: optim_env.jax_env.trainers.estimator_trainer.DUST
+  population_size: 64  # noise draws per update
+  sigma: 0.2  # activation-space noise, DUST's default for direct sites
+  momentum: 0.9

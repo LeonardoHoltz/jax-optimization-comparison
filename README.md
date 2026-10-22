@@ -59,6 +59,13 @@ so there are generations rather than epochs, and no backward pass at all.
 |---|---|
 | Distribution-based | `jax/sep_cma_es`, `jax/snes`, `jax/cr_fm_nes`, `jax/open_es`, `jax/pgpe`, `jax/ars` |
 | Population-based | `jax/particle_swarm`, `jax/simple_ga`, `jax/differential_evolution` |
+| Forward-only gradient estimates (own trainers, not evosax) | `jax/eggroll`, `jax/dust` |
+
+`jax/eggroll` is Open-ES with low-rank noise on Dense kernels (EGGROLL, Sarkar et al.
+2025). `jax/dust` perturbs Dense outputs per example and rebuilds each kernel's gradient
+as xᵀδ ([DUST](https://github.com/qlabs-eng/dust)); it supports Dense-only models (MLP,
+Linear). Selecting either optimizer also selects its trainer
+(`src/optim_env/jax_env/trainers/estimator_trainer.py`).
 
 `jax/cma_es` (full covariance) also exists but is impractical on large models: it needs an
 O(D²) covariance matrix, ~220GB for the 235K-parameter California MLP. Use `sep_cma_es`

@@ -10,7 +10,7 @@ final runs that already finished are skipped. Delete the directory to start over
 
 Search space, picked by the experiment config's `method`:
     NE:  optimizer.population_size, init_std_multiplier, and es_learning_rate for
-         algorithms with an internal optimizer (Open_ES, PGPE, SNES, ARS)
+         algorithms with an internal optimizer (Open_ES, PGPE, SNES, ARS, EGGROLL, DUST)
     SGD: learning_rate, weight_decay, and model.dropout when the model has dropout
 
 Usage:
@@ -33,6 +33,7 @@ import optuna
 from lerna.utils import get_class
 from omegaconf import OmegaConf
 
+from optim_env.jax_env.trainers.estimator_trainer import EstimatorTrainer
 from optim_env.paths import hpo_dir, run_dir
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -50,7 +51,9 @@ VAL_LINE = re.compile(r"(?:Generation|Epoch) (\d+) \| val loss=([\d.eE+-]+)")
 
 
 def _optimizer_target(optimizer_arg: str) -> str:
-    return OmegaConf.load(CONFIGS / "optimizer" / f"{optimizer_arg}.yaml")._target_
+    cfg = OmegaConf.load(CONFIGS / "optimizer" / f"{optimizer_arg}.yaml")
+    # EGGROLL and DUST are @package _global_ (they also pick their trainer).
+    return cfg.get("optimizer", cfg)._target_
 
 
 def _algorithm_label(optimizer_arg: str) -> str:
@@ -60,7 +63,7 @@ def _algorithm_label(optimizer_arg: str) -> str:
 
 def _accepts_internal_optimizer(optimizer_arg: str) -> bool:
     strategy_cls = get_class(_optimizer_target(optimizer_arg))
-    return "optimizer" in inspect.signature(strategy_cls.__init__).parameters
+    return issubclass(strategy_cls, EstimatorTrainer) or "optimizer" in inspect.signature(strategy_cls.__init__).parameters
 
 
 def search_space(args, method: str):

@@ -1,51 +1,26 @@
 import json
-import logging
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from omegaconf import OmegaConf
-from torch.utils.tensorboard import SummaryWriter
 
-from optim_env.datasets import XYDataset
 from optim_env.jax_env.models.linear import Linear
 from optim_env.jax_env.trainers.es_trainer import ESTrainer
 from optim_env.utils.checkpointing import load_checkpoint
+from trainer_helpers import build_trainer
 
 
 def make_trainer(algorithm, tmp_path, generations=5):
-    """ESTrainer without its Hydra-bound __init__: tiny regression data, a Linear model."""
-    cfg = OmegaConf.create({
-        "seed": 0,
-        "generations": generations,
-        "eval_every_gen": 1,
-        "save_path": str(tmp_path),
-        "init_std_multiplier": 1.0,
-        "es_learning_rate": 1e-3,
-        "dataset": {"num_classes": 0},
-        "model": {"_target_": "optim_env.jax_env.models.linear.Linear", "dout": 1},
-        "optimizer": {"_target_": f"evosax.algorithms.{algorithm}", "population_size": 8},
-        "loss": {"_target_": "optim_env.utils.loss.l2_loss", "_call_": False},
-    })
+    """Tiny regression data, a Linear model."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(32, 3)).astype(np.float32)
     y = X @ np.array([1.0, -2.0, 0.5], dtype=np.float32)
-
-    trainer = ESTrainer.__new__(ESTrainer)
-    trainer.cfg = cfg
-    trainer.logger = logging.getLogger("test")
-    trainer.writer = SummaryWriter(str(tmp_path))
-    trainer.key = jax.random.PRNGKey(0)
-    trainer.train_ds = XYDataset(X, y)
-    trainer.train_X, trainer.train_y = jnp.asarray(X[:24]), jnp.asarray(y[:24])
-    trainer.val_X, trainer.val_y = jnp.asarray(X[24:]), jnp.asarray(y[24:])
-    trainer.prepare_model()
-    trainer.prepare_loss_fn()
-    trainer._compile()
-    trainer.best_fitness = float("inf")
-    trainer.best_params = None
-    return trainer
+    return build_trainer(
+        ESTrainer, tmp_path, X, y, n_train=24, generations=generations,
+        model={"_target_": "optim_env.jax_env.models.linear.Linear", "dout": 1},
+        optimizer={"_target_": f"evosax.algorithms.{algorithm}", "population_size": 8},
+    )
 
 
 def test_population_based_std_decays_but_distribution_based_stays_constant(tmp_path):

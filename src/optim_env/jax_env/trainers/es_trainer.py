@@ -41,16 +41,31 @@ class ESTrainer:
         self.best_fitness = float('inf')
         self.best_params = None
 
-    def _compile(self):
+    def _batch_sampler(self):
+        """key -> (X, y) for one generation."""
         # The whole population is scored at once (vmap); for images or text the full
         # training set won't fit in GPU memory, hence fitness_batch_size.
         fitness_batch_size = self.cfg.get("fitness_batch_size", None)
         n_train = self.train_X.shape[0]
-        if fitness_batch_size is not None and fitness_batch_size < n_train:
-            batch_size = int(fitness_batch_size)
-            self.logger.info(f"ES fitness on random mini-batches of {batch_size} (train n={n_train})")
-        else:
-            batch_size = None
+        if fitness_batch_size is None or fitness_batch_size >= n_train:
+            return lambda key: (self.train_X, self.train_y)
+        batch_size = int(fitness_batch_size)
+        self.logger.info(f"ES fitness on random mini-batches of {batch_size} (train n={n_train})")
+
+        def sample(key):
+            # One batch per generation, shared by every candidate, so they're ranked on
+            # the same data.
+            idx = jax.random.choice(key, n_train, (batch_size,), replace=False)
+            return self.train_X[idx], self.train_y[idx]
+        return sample
+
+    def _eval_step(self, params, X, y):
+        params = self.unravel_fn(params)
+        logits = self.model.apply(params, X, deterministic=True)
+        return self.loss_fn(logits, y), logits
+
+    def _compile(self):
+        sample_batch = self._batch_sampler()
 
         def loss_fn(params, X, y):
             params = self.unravel_fn(params)
@@ -60,14 +75,7 @@ class ESTrainer:
 
         def train_step(key, state):
             key, key_ask, key_tell, key_batch = jax.random.split(key, 4)
-
-            if batch_size is None:
-                X, y = self.train_X, self.train_y
-            else:
-                # One batch per generation, shared by every candidate, so they're ranked
-                # on the same data.
-                idx = jax.random.choice(key_batch, n_train, (batch_size,), replace=False)
-                X, y = self.train_X[idx], self.train_y[idx]
+            X, y = sample_batch(key_batch)
 
             population, state = self.strategy.ask(
                 key_ask,
@@ -85,13 +93,7 @@ class ESTrainer:
             return key, state, fitness
 
         self.train_step = jax.jit(train_step)
-
-        def eval_step(params, X, y):
-            params = self.unravel_fn(params)
-            logits = self.model.apply(params, X, deterministic=True)
-            return self.loss_fn(logits, y), logits
-
-        self.eval_step = jax.jit(eval_step)
+        self.eval_step = jax.jit(self._eval_step)
 
     def fit(self):
         for self.gen in range(self.cfg.generations):
@@ -171,14 +173,16 @@ class ESTrainer:
         self.val_X = jnp.asarray(self.val_ds.X)
         self.val_y = jnp.asarray(self.val_ds.y)
 
-    def prepare_model(self):
+    def _init_solution(self):
+        """Builds self.model and self.unravel_fn; returns the initial weights as one vector."""
         self.model = instantiate(self.cfg.model)
         dummy_x = jnp.zeros((1, self.train_ds.X.shape[1]))
         self.key, init_key = jax.random.split(self.key)
+        solution, self.unravel_fn = ravel_pytree(self.model.init(init_key, dummy_x))
+        return solution
 
-        params = self.model.init(init_key, dummy_x)
-
-        solution, self.unravel_fn = ravel_pytree(params)
+    def prepare_model(self):
+        solution = self._init_solution()
 
         # evosax samples with std 1.0 by default; a fresh network's weights have std ~0.07,
         # so default candidates are ~14x too large and losses start in the millions. Every

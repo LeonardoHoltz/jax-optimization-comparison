@@ -1,0 +1,10 @@
+# @package _global_
+# EGGROLL needs its own trainer, so picking this optimizer also picks it.
+defaults:
+  - override /trainer: jax/eggroll_trainer
+
+optimizer:
+  _target_: optim_env.jax_env.trainers.estimator_trainer.EGGROLL
+  population_size: 64  # population_size // 2 antithetic pairs
+  rank: 1
+  momentum: null

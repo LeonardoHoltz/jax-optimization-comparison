@@ -41,7 +41,8 @@ os.environ["JAX_PLATFORMS"] = "cpu"
 
 
 def label(optimizer: str) -> str:
-    return OmegaConf.load(CONFIGS / "optimizer" / f"{optimizer}.yaml")._target_.rsplit(".", 1)[-1]
+    cfg = OmegaConf.load(CONFIGS / "optimizer" / f"{optimizer}.yaml")
+    return cfg.get("optimizer", cfg)._target_.rsplit(".", 1)[-1]  # EGGROLL/DUST nest it
 
 
 def dataset_name(dataset: str) -> str:
