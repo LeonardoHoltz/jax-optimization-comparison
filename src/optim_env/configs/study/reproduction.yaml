@@ -21,11 +21,11 @@ es_optimizers:
 # the full training set no longer fits in 8 GB, so those tasks score a random batch.
 # Full CMA-ES keeps a D x D covariance matrix; above this size it can't fit or run.
 cma_es_max_params: 7000
-# Combinations that don't fit in this GPU's 8 GB; listed in the report's Skipped sheet.
+# Combinations left out; listed in the report's Skipped sheet. The study ran on 20 GB
+# GPUs; on 8 GB, CR-FM-NES on churn/paper runs out of memory.
 skip:
-  churn/paper/jax/cr_fm_nes: "out of GPU memory: CR-FM-NES needs ~3 GB of state for 64 candidates of 2.85M weights"
-  # Chosen 2026-10-12: ~61 GPU hours for a 4.9M-weight model that ES can't be expected to train.
-  sst2/paper/*: "skipped by choice: Kim CNN has 4.9M weights; ES would take ~61 GPU hours"
+  # Chosen 2026-10-12: ~61 GPU hours for a 4.5M-weight model that ES can't be expected to train.
+  sst2/paper/*: "skipped by choice: Kim CNN has 4.5M weights; ES would take ~61 GPU hours"
 
 tasks:
   # ---- tabular: TabM data, splits and preprocessing; targets in references/tabm_mlp.json

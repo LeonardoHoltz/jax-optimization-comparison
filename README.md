@@ -200,6 +200,9 @@ pixi run python src/optim_env/tools/hpo.py --optimizer jax/sep_cma_es --n-trials
 
 # Image models: draw the input that most excites each unit (default: one image per class)
 pixi run python src/optim_env/tools/visualize_neurons.py RUN_DIR [--layer Conv_1 --units 0 1 2]
+# Compare runs side by side: feature visualization of the logits, or saliency maps
+pixi run python src/optim_env/tools/interpretability_grid.py 'outputs/runs/mnist/jax_*/*/paper_hpo/seed_0' \
+    --method saliency --out mnist_saliency.png
 ```
 
 ## 📊 Outputs
@@ -289,7 +292,7 @@ src/optim_env/
     base/           run_layout.yaml — the shared output-path layout
   tools/            train.py, test.py, hpo.py entry points
   analysis/         Loading finished runs back for analysis
-  interpretability/ What a trained model learned (activation maximization)
+  interpretability/ What a trained model learned (activation maximization, saliency)
   prepare_dataset/  Dataset download CLIs
   paths.py          Canonical output locations for tooling
 scripts/            Campaign scripts and shared shell helpers
