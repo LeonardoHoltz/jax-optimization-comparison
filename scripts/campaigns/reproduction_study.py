@@ -3,6 +3,7 @@
     pixi run python scripts/campaigns/reproduction_study.py --pilot              # tiny budgets, all tasks
     pixi run python scripts/campaigns/reproduction_study.py --stage sgd          # gradient arms, all tasks
     pixi run python scripts/campaigns/reproduction_study.py --stage ne --tasks california adult
+    pixi run python scripts/campaigns/reproduction_study.py --stage ne --optimizers jax/dust --no-hpo
 
 Safe to stop and re-run: finished runs (metrics.json present) are skipped, and HPO
 studies resume from their study.db. Per-run output goes to
@@ -69,6 +70,7 @@ class Study:
         self.cfg = OmegaConf.load(CONFIGS / "study" / f"{args.study}.yaml")
         self.name = args.study + ("_pilot" if args.pilot else "")
         self.pilot = args.pilot
+        self.no_hpo = args.no_hpo
         self.prefix = "pilot-" if args.pilot else ""
         self.seeds = [0] if args.pilot else list(self.cfg.seeds)
         self.n_trials = 2 if args.pilot else self.cfg.n_trials
@@ -129,6 +131,8 @@ class Study:
                        f"{budget_key}={budget}", f"variant={base_variant}", f"seed={seed}"],
                       f"{tag}.baseline.seed{seed}", f"{tag} untuned seed {seed}", env)
 
+        if self.no_hpo:
+            return
         sets = [x for kv in [f"loss={t.loss}", *fixed] for x in ("--set", kv)]
         self.call([PY, "src/optim_env/tools/hpo.py", "--config-name", config, "--dataset", spec.dataset,
                    "--model", spec.model, "--optimizer", optimizer, "--n-trials", str(self.n_trials),
@@ -150,7 +154,9 @@ class Study:
                                                          "full CMA-ES needs a D x D covariance matrix")
                         continue
                     skip = self.cfg.get("skip", {})
-                    reason = skip.get(f"{task}/{arch}/{opt}") or skip.get(f"{task}/{arch}/*")
+                    # An entry for this optimizer beats the "*" one; null there means "run it".
+                    key = f"{task}/{arch}/{opt}"
+                    reason = skip[key] if key in skip else skip.get(f"{task}/{arch}/*")
                     if reason:
                         self.note_skip(task, arch, opt, reason)
                         continue
@@ -187,6 +193,7 @@ def main():
     parser.add_argument("--stage", choices=["sgd", "ne", "all"], default="all")
     parser.add_argument("--pilot", action="store_true", help="1 seed, 2 trials, tiny budgets; separate outputs")
     parser.add_argument("--optimizers", nargs="*", default=None, help="Only these ES optimizers, e.g. jax/pgpe")
+    parser.add_argument("--no-hpo", action="store_true", help="Untuned runs only; skip the search and tuned runs")
     args = parser.parse_args()
 
     study = Study(args)

@@ -101,21 +101,29 @@ class EggrollTrainer(EstimatorTrainer):
 
 class DustTrainer(EstimatorTrainer):
     """DUST (github.com/qlabs-eng/dust): forward-only node perturbation. Each draw adds
-    Gaussian noise to every Dense output, independently per example; the change in each
-    example's loss times that noise estimates δ, the loss gradient at that output. A
-    Dense kernel's gradient is then xᵀδ with x its cached input, as in backprop. Dense
-    layers only: other parameters would need their own local rule."""
+    Gaussian noise to every Dense, Conv and Embed output, independently per example; the
+    change in each example's loss times that noise estimates δ, the loss gradient at that
+    output. Each layer's parameter gradient is then its own local linear map applied to δ
+    (the vjp of that one layer, as in DUST's `reassemble`): xᵀδ for Dense, a scatter-add
+    into the table for Embed. Conv isn't in the DUST repo; the same rule gives the
+    correlation of input patches with δ."""
+
+    SITES = (nn.Dense, nn.Conv, nn.Embed)
 
     def _estimate(self, params, key, X, y):
         draws, sigma = self.cfg.optimizer.population_size, float(self.cfg.optimizer.sigma)
         per_example = jax.vmap(lambda pred, t: self.loss_fn(pred[None], t[None]))
 
-        inputs, outputs = {}, {}
+        def is_site(ctx):
+            return isinstance(ctx.module, self.SITES) and ctx.method_name == "__call__"
+
+        modules, inputs, outputs = {}, {}, {}
 
         def record(f, args, kwargs, ctx):
             out = f(*args, **kwargs)
-            if _is_dense_call(ctx):
-                inputs[ctx.module.path], outputs[ctx.module.path] = args[0], out
+            if is_site(ctx):
+                path = ctx.module.path
+                modules[path], inputs[path], outputs[path] = ctx.module.clone(parent=None), args[0], out
             return out
 
         with nn.intercept_methods(record):
@@ -126,7 +134,7 @@ class DustTrainer(EstimatorTrainer):
         def jittered_losses(a):
             def jitter(f, args, kwargs, ctx):
                 out = f(*args, **kwargs)
-                return out + sigma * a[ctx.module.path] if _is_dense_call(ctx) else out
+                return out + sigma * a[ctx.module.path] if is_site(ctx) else out
 
             with nn.intercept_methods(jitter):
                 return per_example(self.model.apply(params, X, deterministic=True), y)
@@ -139,11 +147,12 @@ class DustTrainer(EstimatorTrainer):
         grad = {}
         for path, a in noise.items():
             delta = jnp.einsum("nb,nb...->b...", weights, a)  # d loss_b / d output_b
-            grad[("params", *path, "kernel")] = jnp.einsum("b...i,b...o->io", inputs[path], delta) / X.shape[0]
-            if ("params", *path, "bias") in flat:
-                grad[("params", *path, "bias")] = delta.reshape(-1, delta.shape[-1]).sum(0) / X.shape[0]
+            layer = traverse_util.unflatten_dict({k[len(path) + 1:]: v for k, v in flat.items() if k[1:len(path) + 1] == path})
+            _, local_map = jax.vjp(lambda p, m=modules[path], x=inputs[path]: m.apply({"params": p}, x), layer)
+            (layer_grad,) = local_map(delta / X.shape[0])
+            grad.update({("params", *path, *k): v for k, v in traverse_util.flatten_dict(layer_grad).items()})
         if missing := set(flat) - set(grad):
-            raise ValueError(f"DUST trainer handles Dense layers only; no estimate for {sorted(missing)}")
+            raise ValueError(f"DUST trainer handles Dense, Conv and Embed layers only; no estimate for {sorted(missing)}")
         return traverse_util.unflatten_dict(grad), losses.mean(1)
 
 

@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import csv
+import functools
 import glob
 import logging
 from pathlib import Path
@@ -21,6 +22,14 @@ from optim_env.paths import REPORTS
 from optim_env.resolvers import register_custom_resolvers
 
 register_custom_resolvers()
+
+
+@functools.lru_cache(maxsize=2)
+def _dataset(dataset_yaml: str):
+    """One load per dataset config: reloading MNIST for each of ~200 runs grew memory
+    past 15 GB. main() sorts runs by dataset and seed so two entries suffice (a text
+    task's token and GloVe configs share a dataset folder)."""
+    return load_dataset(OmegaConf.create({"dataset": OmegaConf.create(dataset_yaml)}))
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("test")
@@ -45,7 +54,7 @@ def evaluate_run(run_dir: Path) -> dict | None:
     # Broad on purpose: old run directories may point at code that has since moved.
     # Skip them instead of failing the whole report.
     try:
-        dataset = load_dataset(cfg)
+        dataset = _dataset(OmegaConf.to_yaml(cfg.dataset, resolve=True))
         test_ds = dataset.get_test_ds()
 
         X_test, y_test = test_ds.X, test_ds.y
@@ -114,7 +123,9 @@ def main():
     parser.add_argument("--output-dir", default=str(REPORTS))
     args = parser.parse_args()
 
-    run_dirs = sorted({Path(p) for pattern in args.run_dirs_glob for p in glob.glob(pattern) if Path(p).is_dir()})
+    # outputs/runs/<dataset>/.../seed_<n>: grouped by dataset and seed for _dataset's cache.
+    run_dirs = sorted({Path(p) for pattern in args.run_dirs_glob for p in glob.glob(pattern) if Path(p).is_dir()},
+                      key=lambda d: (d.parts[-5:-4], d.name, d))
     if not run_dirs:
         raise SystemExit(f"No run directories matched: {args.run_dirs_glob}")
 

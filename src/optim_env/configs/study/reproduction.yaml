@@ -26,6 +26,8 @@ cma_es_max_params: 7000
 skip:
   # Chosen 2026-10-12: ~61 GPU hours for a 4.5M-weight model that ES can't be expected to train.
   sst2/paper/*: "skipped by choice: Kim CNN has 4.5M weights; ES would take ~61 GPU hours"
+  # DUST keeps no population of weight copies: ~0.85 s per generation, ~2.4 h for 5 seeds.
+  sst2/paper/jax/dust: null
 
 tasks:
   # ---- tabular: TabM data, splits and preprocessing; targets in references/tabm_mlp.json

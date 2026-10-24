@@ -84,9 +84,21 @@ def test_training_lowers_val_loss_and_saves_the_picked_checkpoint(tmp_path, algo
     assert (tmp_path / "best_model.msgpack").exists()
 
 
-def test_dust_rejects_layers_it_has_no_rule_for(tmp_path):
-    trainer = make_trainer("DUST", tmp_path)
-    trainer.cfg.model = {"_target_": "optim_env.jax_env.models.text.FastText", "vocab_size": 4, "dout": 1}
-    trainer.prepare_model()
-    with pytest.raises(ValueError, match="Dense layers only"):
-        trainer._estimate(trainer.unravel_fn(trainer.state[0]), jax.random.PRNGKey(0), trainer.train_X, trainer.train_y)
+# Conv and Embed go through the same local rule as Dense, so their estimates must also
+# point along the true gradient. Inputs are ids for fastText, pixels for the CNNs.
+# LeNet perturbs ~6,500 outputs per example, so 4096 draws give a noisier estimate (0.82;
+# 0.93 at 16K draws, 0.98 at 65K). A sign or scale bug lands near 0.
+@pytest.mark.parametrize("model, n_features, ids, min_cosine", [
+    ({"_target_": "optim_env.jax_env.models.cnn.CNN", "input_shape": [6, 6, 1], "features": [3], "dout": 1}, 36, False, 0.9),
+    ({"_target_": "optim_env.jax_env.models.cnn.LeNet5", "dout": 1}, 784, False, 0.7),
+    ({"_target_": "optim_env.jax_env.models.text.FastText", "vocab_size": 7, "dout": 1, "embed_dim": 4}, 5, True, 0.9),
+])
+def test_dust_estimate_covers_conv_and_embedding_layers(tmp_path, model, n_features, ids, min_cosine):
+    rng = np.random.default_rng(0)
+    # 16 training rows: 4096 draws of LeNet's first conv output already take ~1 GB.
+    X = (rng.integers(0, 7, size=(24, n_features)) if ids else rng.uniform(size=(24, n_features))).astype(np.float32)
+    y = np.tanh(X.mean(1) - X.mean()).astype(np.float32)[:, None]
+    trainer = build_trainer(DustTrainer, tmp_path, X, y, n_train=16, model=model,
+                            optimizer={"population_size": 4096, "sigma": 0.05, "momentum": 0.9})
+    grad, _ = trainer._estimate(trainer.unravel_fn(trainer.state[0]), jax.random.PRNGKey(2), trainer.train_X, trainer.train_y)
+    assert cosine(ravel_pytree(grad)[0], true_grad(trainer)) > min_cosine

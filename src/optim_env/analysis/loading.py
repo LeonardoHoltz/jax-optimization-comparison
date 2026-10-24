@@ -61,6 +61,9 @@ def load_run(run_dir: Path | str) -> LoadedRun:
     import jax.numpy as jnp
     from flax.training import train_state
 
+    from lerna.utils import get_class
+
+    from optim_env.jax_env.trainers.es_trainer import ESTrainer
     from optim_env.utils.checkpointing import load_checkpoint
 
     # The checkpoint is deserialized into a template of matching pytree structure, which
@@ -75,7 +78,7 @@ def load_run(run_dir: Path | str) -> LoadedRun:
             apply_fn=model.apply, params=init_params, tx=instantiate(cfg.optimizer)
         )
         params = load_checkpoint(template, checkpoint_path).params
-    elif cfg.trainer._target_.endswith("ESTrainer"):
+    elif issubclass(get_class(cfg.trainer._target_), ESTrainer):  # also EGGROLL and DUST
         params = load_checkpoint(init_params, checkpoint_path)
     else:
         raise ValueError(f"Unsupported trainer for loading: {cfg.trainer._target_}")

@@ -36,9 +36,11 @@ OBJECT = 0.1  # pixels brighter than this belong to the digit or garment
 
 
 def display_name(run) -> str:
-    """e.g. "Sep-CMA-ES", or "adamw-clipped (gradient)" for gradient runs."""
+    """e.g. "Sep-CMA-ES", "adamw-clipped (gradient)"; untuned runs say so, for grids
+    that mix them with tuned ones."""
     name = run.cfg.algorithm.replace("_", "-")
-    return f"{name} (gradient)" if run.cfg.method == "SGD" else name
+    name += " (gradient)" if run.cfg.method == "SGD" else ""
+    return name + ("\nuntuned" if run.cfg.variant.endswith("baseline") else "")
 
 
 def first_of_each_class(y, n_classes: int) -> np.ndarray:

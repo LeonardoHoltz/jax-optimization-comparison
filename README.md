@@ -62,9 +62,9 @@ so there are generations rather than epochs, and no backward pass at all.
 | Forward-only gradient estimates (own trainers, not evosax) | `jax/eggroll`, `jax/dust` |
 
 `jax/eggroll` is Open-ES with low-rank noise on Dense kernels (EGGROLL, Sarkar et al.
-2025). `jax/dust` perturbs Dense outputs per example and rebuilds each kernel's gradient
-as xᵀδ ([DUST](https://github.com/qlabs-eng/dust)); it supports Dense-only models (MLP,
-Linear). Selecting either optimizer also selects its trainer
+2025). `jax/dust` perturbs Dense, Conv and Embed outputs per example and rebuilds each layer's
+gradient from δ with that layer's own linear map ([DUST](https://github.com/qlabs-eng/dust);
+the repo covers Dense and Embed, Conv uses the same rule), so it trains every model here. Selecting either optimizer also selects its trainer
 (`src/optim_env/jax_env/trainers/estimator_trainer.py`).
 
 `jax/cma_es` (full covariance) also exists but is impractical on large models: it needs an
