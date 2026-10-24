@@ -5,6 +5,9 @@
 # grids (tuned runs plus untuned DUST, seed 0) into outputs/reports/reproduction/interpretability/.
 set -e
 cd "$(dirname "$0")/../.."
+# JAX reserves 75% of the GPU's total memory up front; on a shared GPU that can exceed
+# what is free. Allocate on demand instead.
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
 TASKS=${TASKS:-"california adult higgs_small churn house mnist fashion_mnist"}
 
 # --tasks re-scores each task at its end, so California gets its DUST rows too.
