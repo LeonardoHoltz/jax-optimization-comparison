@@ -1,0 +1,62 @@
+# Kaplan-style scaling study of neuroevolution on MNIST (scripts/campaigns/scaling_study.py).
+# Question: does the loss follow power laws in model size N, population P and generations G,
+# and does the useful population grow with N, with the loss reached, or with neither?
+#
+# Model family: the repo's CNN with channels [w, 2w, 4w] (3x3 convs, 2x2 max-pool after each,
+# one dense layer). Parameters = 90w² + 376w + 10; forward cost = 7056w² + 7416w
+# multiply-adds per image. Only the width changes, so all sizes share one shape.
+
+prefix: scaling  # run variants are <prefix>_w.._p.._n.._lr.. (<prefix>tune_... in phase 1)
+dataset: mnist  # 50K train / 10K val (fixed, seed 0) / official 10K test; pixels in [0, 1]
+loss: jax/cross_entropy  # smooth objective, as in Kaplan; val cross-entropy is the measured loss
+fitness_batch_size: 256  # images scored per generation, shared by every member (held fixed)
+
+# N axis: 476 to 392,714 parameters, 2.9 decades.
+widths: [1, 2, 4, 8, 16, 32, 64]
+
+algorithms:
+  # Weight-space ES: antithetic Gaussian noise, centered-rank shaping, plain SGD step.
+  # sigma = noise_mult x std of the initial weights, so it follows each width's scale.
+  open_es:
+    optimizer: jax/open_es
+    noise_key: init_std_multiplier
+    noise: [0.25, 0.5, 1.0, 2.0]
+    learning_rates: [1.0e-3, 3.0e-3, 1.0e-2, 3.0e-2]
+    # evosax keeps ~3 copies of the population (P x params floats); above this it won't fit
+    # in 20 GB. Skips only w=64 at P=4096; listed in skipped.json.
+    max_population_x_params: 1.0e9
+  # Node perturbation: per-example noise on every layer output, SGD with momentum 0.9.
+  # sigma is in activation units, so it is not rescaled per width.
+  dust:
+    optimizer: jax/dust
+    noise_key: optimizer.sigma
+    noise: [0.05, 0.1, 0.2, 0.4]
+    learning_rates: [1.0e-2, 3.0e-2, 1.0e-1, 3.0e-1]
+
+# P axis: 8 to 4096 members (draws for DUST), 2.7 decades.
+populations: [8, 32, 128, 512, 2048, 4096]
+
+# G axis comes from each run's validation curve (200 evaluations per run), so it needs no
+# extra runs. A run stops at max_generations or at its compute budget, whichever comes first:
+#   compute = P x G x fitness_batch_size x 2 x multiply-adds(w)   (forward passes only)
+# Budget: 1e16 FLOPs per run keeps phases 1-2 near 65 GPU hours on an RTX 3070 (cost
+# probe, 2026-11-07); it shortens only runs with P x width large.
+max_generations: 5000
+min_generations: 500
+compute_budget_flops: 1.0e16  # per run
+
+# Phase 1 (tune): noise x learning rate at one population, short runs, one seed. Picks the
+# noise level for each (algorithm, width).
+tune: {population: 128, generations: 1000}
+# Phase 2 (sweep): every (width, population) with the tuned noise, over the learning rates.
+# A best rate at either end of the list adds the next rate out (x/÷ 3.16), up to 2 extra.
+# Phase 3 (seeds, off for now): the best rate of each cell, rerun with extra_seeds.
+sweep_seed: 0
+extra_seeds: []
+
+# Reference: AdamW (gradient) on the same widths, Kaplan's N axis with backprop.
+adamw: {learning_rates: [3.0e-4, 1.0e-3, 3.0e-3, 1.0e-2], epochs: 100, patience: 10, seeds: [0]}
+
+# Members scored at once. A chunk holds chunk x 256 images of activations, about
+# 1,400 w floats each, so the chunk shrinks as the width grows.
+chunk_images_per_width: 512  # chunk = clamp(512 // w, 8, P)

@@ -82,7 +82,10 @@ class ESTrainer:
                 state,
                 self.params
             )
-            fitness = jax.vmap(loss_fn, in_axes=(0, None, None))(population, X, y)
+            score = lambda member: loss_fn(member, X, y)
+            # population_chunk: members scored at once, so large populations fit in memory.
+            chunk = self.cfg.get("population_chunk")
+            fitness = jax.lax.map(score, population, batch_size=chunk) if chunk else jax.vmap(score)(population)
             state, _ = self.strategy.tell(
                 key_tell,
                 population,
@@ -96,6 +99,7 @@ class ESTrainer:
         self.eval_step = jax.jit(self._eval_step)
 
     def fit(self):
+        self.curve = []  # [generation, val loss, val accuracy], one row per evaluation
         for self.gen in range(self.cfg.generations):
             self.key, self.state, fitness = self.train_step(self.key, self.state)
             fitness_min = float(fitness.min())
@@ -122,6 +126,7 @@ class ESTrainer:
                 if val_acc is not None:
                     self.writer.add_scalar("val/accuracy", val_acc, self.gen)
                 
+                self.curve.append([self.gen, val_loss, val_acc])
                 self.logger.info(f"Generation {self.gen} | val loss={val_loss:.4f}" + (f" accuracy={val_acc:.4f}" if val_acc is not None else ""))
 
                 # Keep the best-on-validation candidate, as the SGD trainers do. evosax's
@@ -142,12 +147,18 @@ class ESTrainer:
         # Read by tools/hpo.py and the study report; best_val_loss belongs to the checkpoint.
         metrics_path = os.path.join(self.cfg.save_path, "metrics.json")
         with open(metrics_path, "w") as f:
-            json.dump({"best_val_loss": self.best_fitness, "generations": self.cfg.generations}, f)
+            json.dump({"best_val_loss": self.best_fitness, "generations": self.cfg.generations, "curve": self.curve}, f)
 
         self.writer.close()
 
     def evaluate(self, params_flat):
-        val_loss, logits = self.eval_step(params_flat, self.val_X, self.val_y)
+        # eval_batch_size: rows per forward pass, for models whose activations on the whole
+        # validation set don't fit in memory. The loss is the row-weighted mean of the batches.
+        step = self.cfg.get("eval_batch_size") or len(self.val_y)
+        parts = [self.eval_step(params_flat, self.val_X[i:i + step], self.val_y[i:i + step])
+                 for i in range(0, len(self.val_y), step)]
+        val_loss = sum(loss * len(lg) for loss, lg in parts) / len(self.val_y)
+        logits = jnp.concatenate([lg for _, lg in parts])
 
         val_acc = None
         is_classification = self.cfg.dataset.num_classes and self.cfg.dataset.num_classes > 0

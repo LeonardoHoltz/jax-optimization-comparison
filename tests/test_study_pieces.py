@@ -107,3 +107,19 @@ def test_test_tool_reports_rmse_in_target_units(tmp_path, monkeypatch):
 
     y_train = np.load(tmp_path / "Y_train.npy")
     assert test_tool.evaluate_run(run)["rmse"] == pytest.approx(0.1 * y_train.std(), rel=1e-4)
+
+
+def test_scaling_fits_recover_known_laws():
+    from optim_env.tools.scaling_analysis import critical_population, fit_power_offset
+    import pandas as pd
+
+    P = np.array([8, 32, 128, 512, 2048])
+    fit = fit_power_offset(P, 0.1 + 2.0 * P ** -0.5)
+    assert fit["E"] == pytest.approx(0.1, abs=1e-3) and fit["alpha"] == pytest.approx(0.5, rel=1e-2)
+
+    # Curves where reaching any loss L takes G = G_min(L) * (1 + 100 / P): P_crit = 100.
+    G = np.arange(1, 5001)
+    rows = [{"algorithm": "x", "width": 4, "population": p, "seed": 0, "G": g,
+             "loss": 1.0 / np.log(np.e + g / (1 + 100 / p))} for p in P for g in G]
+    crit = critical_population(pd.DataFrame(rows))
+    assert np.allclose(crit.P_crit, 100, rtol=0.05)

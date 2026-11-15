@@ -55,3 +55,21 @@ def test_saved_checkpoint_is_the_one_validation_picked(tmp_path, algorithm):
     saved_val_loss = float(trainer.loss_fn(pred, trainer.val_y))
 
     assert saved_val_loss == pytest.approx(metrics["best_val_loss"], rel=1e-5)
+
+
+def test_population_chunk_scores_the_same_as_one_vmap(tmp_path):
+    whole, chunked = make_trainer("Open_ES", tmp_path / "a"), make_trainer("Open_ES", tmp_path / "b")
+    chunked.cfg.population_chunk = 3  # 8 members: chunks of 3, 3 and 2
+    chunked._compile()
+    _, state_a, fitness_a = whole.train_step(whole.key, whole.state)
+    _, state_b, fitness_b = chunked.train_step(chunked.key, chunked.state)
+    np.testing.assert_allclose(fitness_a, fitness_b, rtol=1e-6)
+    np.testing.assert_allclose(state_a.mean, state_b.mean, rtol=1e-6)
+
+
+def test_eval_batch_size_gives_the_same_val_loss(tmp_path):
+    trainer = make_trainer("Open_ES", tmp_path)  # 8 validation rows
+    params = trainer._get_current_params(trainer.state)
+    whole = trainer.evaluate(params)
+    trainer.cfg.eval_batch_size = 3  # batches of 3, 3 and 2
+    assert trainer.evaluate(params)[0] == pytest.approx(whole[0], rel=1e-6)

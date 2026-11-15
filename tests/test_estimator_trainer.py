@@ -102,3 +102,12 @@ def test_dust_estimate_covers_conv_and_embedding_layers(tmp_path, model, n_featu
                             optimizer={"population_size": 4096, "sigma": 0.05, "momentum": 0.9})
     grad, _ = trainer._estimate(trainer.unravel_fn(trainer.state[0]), jax.random.PRNGKey(2), trainer.train_X, trainer.train_y)
     assert cosine(ravel_pytree(grad)[0], true_grad(trainer)) > min_cosine
+
+
+def test_dust_chunked_draws_still_estimate_the_gradient(tmp_path):
+    trainer = make_trainer("DUST", tmp_path, population_size=4096, sigma=0.05)
+    trainer.cfg.population_chunk = 512
+    params = trainer.unravel_fn(trainer.state[0])
+    grad, losses = trainer._estimate(params, jax.random.PRNGKey(2), trainer.train_X, trainer.train_y)
+    assert losses.shape == (4096,)
+    assert cosine(ravel_pytree(grad)[0], true_grad(trainer)) > 0.9

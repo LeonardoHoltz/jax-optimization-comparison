@@ -128,8 +128,16 @@ class DustTrainer(EstimatorTrainer):
 
         with nn.intercept_methods(record):
             self.model.apply(params, X, deterministic=True)
-        keys = jax.random.split(key, len(outputs))
-        noise = {path: jax.random.normal(k, (draws, *out.shape)) for (path, out), k in zip(outputs.items(), keys)}
+        # Draws come in chunks of population_chunk, so large populations fit in memory. The
+        # noise is regenerated from each chunk's key in both passes instead of being stored.
+        chunk = self.cfg.get("population_chunk") or draws
+        if draws % chunk:
+            raise ValueError(f"population_size {draws} is not a multiple of population_chunk {chunk}")
+        chunk_keys = key[None] if chunk == draws else jax.random.split(key, draws // chunk)
+
+        def chunk_noise(k):
+            keys = jax.random.split(k, len(outputs))
+            return {path: jax.random.normal(kk, (chunk, *out.shape)) for (path, out), kk in zip(outputs.items(), keys)}
 
         def jittered_losses(a):
             def jitter(f, args, kwargs, ctx):
@@ -139,14 +147,21 @@ class DustTrainer(EstimatorTrainer):
             with nn.intercept_methods(jitter):
                 return per_example(self.model.apply(params, X, deterministic=True), y)
 
-        losses = jax.vmap(jittered_losses)(noise)  # (draws, batch)
+        losses = jax.lax.map(lambda k: jax.vmap(jittered_losses)(chunk_noise(k)), chunk_keys).reshape(draws, -1)
         # Baseline: the draws' own mean, which keeps (draws-1)/draws of the signal.
         weights = (losses - losses.mean(0)) / (sigma * (draws - 1))
 
+        def add_chunk(deltas, xs):
+            k, w = xs
+            a = chunk_noise(k)
+            return {path: deltas[path] + jnp.einsum("nb,nb...->b...", w, a[path]) for path in deltas}, None
+
+        zeros = {path: jnp.zeros_like(out) for path, out in outputs.items()}
+        deltas, _ = jax.lax.scan(add_chunk, zeros, (chunk_keys, weights.reshape(len(chunk_keys), chunk, -1)))
+
         flat = traverse_util.flatten_dict(params)
         grad = {}
-        for path, a in noise.items():
-            delta = jnp.einsum("nb,nb...->b...", weights, a)  # d loss_b / d output_b
+        for path, delta in deltas.items():  # delta: d loss_b / d output_b
             layer = traverse_util.unflatten_dict({k[len(path) + 1:]: v for k, v in flat.items() if k[1:len(path) + 1] == path})
             _, local_map = jax.vjp(lambda p, m=modules[path], x=inputs[path]: m.apply({"params": p}, x), layer)
             (layer_grad,) = local_map(delta / X.shape[0])

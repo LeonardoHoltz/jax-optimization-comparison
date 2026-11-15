@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parents[3]
 REFS = Path(__file__).resolve().parents[1] / "configs" / "references"
 # Regression scores are errors (lower is better); classification scores are accuracy.
 METRICS = {"rmse": "lower", "accuracy": "higher"}
+# Forward-only gradient estimators: run in the NE arm, but not evolution strategies, so
+# the overview reports them in their own columns instead of inside "best ES".
+FORWARD_ONLY = ("DUST", "EGGROLL")
 
 README = [
     ("What this file is", "Test-set results of the reproduction study: each task trained with the paper's model and a smaller one, by gradient descent and by every evolution strategy (ES), each with and without tuning."),
@@ -110,8 +113,11 @@ def main():
         for arch in ("paper", "simple"):
             for tuning in ("untuned", "tuned"):
                 row[f"{arch} gradient {tuning}"] = best(df, metric, arch, "SGD", tuning)[0]
-                val, algo = best(df, metric, arch, "NE", tuning)
+                val, algo = best(df[~df.algorithm.isin(FORWARD_ONLY)], metric, arch, "NE", tuning)
                 row[f"{arch} best ES {tuning}"] = f"{val} ({algo})" if algo else ""
+                for name in FORWARD_ONLY:
+                    if (df.algorithm == name).any():
+                        row[f"{arch} {name} {tuning}"] = best(df[df.algorithm == name], metric, arch, "NE", tuning)[0]
         summary.append(row)
 
     if not summary:

@@ -16,7 +16,7 @@ pixi run python scripts/campaigns/reproduction_study.py --stage ne --optimizers 
 OUT=outputs/reports/reproduction/interpretability
 for d in mnist fashion_mnist; do
     for a in paper simple; do
-        for m in features saliency; do
+        for m in features saliency integrated_gradients gradcam; do
             pixi run python src/optim_env/tools/interpretability_grid.py --method $m --out $OUT/${m}_${d}_${a}.png \
                 "outputs/runs/$d/jax_*/*/${a}_hpo/seed_0" "outputs/runs/$d/jax_NE/DUST/${a}_baseline/seed_0"
         done
