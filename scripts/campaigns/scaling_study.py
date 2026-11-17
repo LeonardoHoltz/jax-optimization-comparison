@@ -5,10 +5,12 @@
     pixi run python scripts/campaigns/scaling_study.py sweep    # phase 2: width x population x rate
     pixi run python scripts/campaigns/scaling_study.py seeds    # phase 3: best rate, more seeds
     pixi run python scripts/campaigns/scaling_study.py adamw    # gradient reference
+    pixi run python scripts/campaigns/scaling_study.py status   # rewrite progress.md now
     ... --algorithms dust --widths 32 64    # a slice, e.g. one per GPU
 
 Safe to stop and re-run: finished runs (metrics.json present) are skipped. Each phase reads
-the previous phase's picks from outputs/study/<study>/tuned/. Runs go to
+the previous phase's picks from outputs/study/<study>/tuned/. Every run start and end rewrites
+outputs/study/<study>/progress.md (done / running / failed / pending, all phases). Runs go to
 outputs/runs/mnist/jax_<SGD|NE>/<ALGO>/<variant>/seed_<n>/, variant scaling[tune]_w.._p.._n.._lr..
 """
 
@@ -49,8 +51,10 @@ class Scaling:
         self.algorithms = args.algorithms or list(self.cfg.algorithms)
         self.widths = args.widths or list(self.cfg.widths)
         self.dataset = dataset_name(self.cfg.dataset)
-        self.dry = args.command == "plan"
-        self.planned = []  # (phase, algorithm, width, population, generations), for plan
+        self.command = args.command
+        self.dry = args.command in ("plan", "status")
+        self.args = args
+        self.planned = []  # (phase, algorithm, width, population, generations, run dir or None)
 
     # ---- run bookkeeping -----------------------------------------------------------------
     def generations(self, P, w):
@@ -67,14 +71,19 @@ class Scaling:
         path = run / "metrics.json"
         return json.loads(path.read_text())["best_val_loss"] if path.exists() else None
 
+    def log_path(self, run):
+        return self.dir / "logs" / f"{run.parent.name}.seed{run.name[5:]}.log"
+
     def call(self, cmd, run, what, phase, algo, w, P, G):
         if self.dry:
-            self.planned.append((phase, algo, w, P, G))
+            self.planned.append((phase, algo, w, P, G, run))
             return
         if (run / "metrics.json").exists():
             return
-        log = self.dir / "logs" / f"{run.parent.name}.seed{run.name[5:]}.log"
+        log = self.log_path(run)
         start = time.time()
+        log.write_text("")  # marks the run as running in progress.md
+        self.write_progress()
         with open(log, "w") as f:
             code = subprocess.call(cmd, cwd=ROOT, env=ENV, stdout=f, stderr=subprocess.STDOUT)
         seconds = time.time() - start
@@ -86,6 +95,12 @@ class Scaling:
             csv.writer(f).writerow([what, round(seconds, 1), code, log.relative_to(ROOT)])
         status = "ok" if code == 0 else f"FAILED (exit {code}, see {log.relative_to(ROOT)})"
         print(f"[{time.strftime('%H:%M:%S')}] {what}: {status} in {seconds / 60:.1f} min", flush=True)
+        self.write_progress()
+
+    def write_progress(self):
+        """progress.md for the whole study (every algorithm, width and phase), whichever process calls it."""
+        status = Scaling(argparse.Namespace(**{**vars(self.args), "command": "status", "algorithms": None, "widths": None}))
+        status.status()
 
     # ---- one ES run ----------------------------------------------------------------------
     def es_run(self, phase, algo, w, P, noise, lr, seed, G):
@@ -146,7 +161,7 @@ class Scaling:
         results = {lr: self.best_val(self.es_run("sweep", algo, w, P, noise, lr, seed, G)) for lr in rates}
         for _ in range(2):
             done = {lr: v for lr, v in results.items() if v is not None and math.isfinite(v)}
-            if self.dry or len(done) < len(results):
+            if self.command == "plan" or len(done) < len(results):
                 break
             best = min(done, key=done.get)
             if best not in (rates[0], rates[-1]):
@@ -160,6 +175,11 @@ class Scaling:
         for algo in self.algorithms:
             for w in self.widths:
                 tuned = self.picked(f"{algo}_w{w}_noise")
+                if tuned is None and self.command == "status":
+                    for P in self.cfg.populations:  # names unknown until tune picks the noise
+                        if self.fits(algo, w, P):
+                            self.planned += [("sweep", algo, w, P, self.generations(P, w), None)] * len(self.cfg.algorithms[algo].learning_rates)
+                    continue
                 if tuned is None and not self.dry:
                     print(f"skip {algo} w={w}: run the tune phase first", flush=True)
                     continue
@@ -180,7 +200,7 @@ class Scaling:
                     if not self.fits(algo, w, P):
                         continue
                     tuned = self.picked(f"{algo}_w{w}_p{P}_lr")
-                    if tuned is None and not self.dry:
+                    if tuned is None and self.command != "plan":
                         continue
                     noise, lr = (tuned["noise"], tuned["lr"]) if tuned else (0, 0)
                     for seed in self.cfg.extra_seeds:
@@ -191,7 +211,7 @@ class Scaling:
         for w in self.widths:
             for lr in a.learning_rates:
                 for seed in a.seeds:
-                    variant = f"scaling_w{w}_lr{lr:g}"
+                    variant = f"{self.cfg.prefix}_w{w}_lr{lr:g}"
                     run = self.run_dir("SGD", "adamw_clipped", variant, seed)
                     cmd = [PY, "src/optim_env/tools/train.py", "--config-name", "study_sgd", f"dataset={self.cfg.dataset}",
                            "model=jax/cnn_mnist", f"model.features=[{w},{2 * w},{4 * w}]", f"loss={self.cfg.loss}",
@@ -213,7 +233,7 @@ class Scaling:
                 X = np.c_[np.ones(len(pts)), np.log(pts[:, 0]), np.log(pts[:, 1])]
                 fits[algo] = np.linalg.lstsq(X, np.log(pts[:, 2]), rcond=None)[0]
         hours, counts = {}, {}
-        for phase, algo, w, P, G in self.planned:
+        for phase, algo, w, P, G, _ in self.planned:
             counts[(phase, algo)] = counts.get((phase, algo), 0) + 1
             if algo in fits:
                 k, a, b = fits[algo]
@@ -224,10 +244,53 @@ class Scaling:
         print(f"total {sum(counts.values())} runs" + (f", ~{sum(hours.values()):.1f} GPU h" if hours else "")
               + " (the sweep adds up to 2 rates per cell when the best sits at an end; not counted)")
 
+    def status(self):
+        """Writes progress.md: a bar per phase and algorithm, then every run and its state."""
+        for phase in (self.tune, self.sweep, self.seeds, self.adamw):
+            phase()
+        failed = set()
+        timings = self.dir / "timings.csv"
+        if timings.exists():
+            failed = {r["log"] for r in csv.DictReader(open(timings)) if r["exit_code"] != "0"}
+
+        def state(run):
+            if run is None:
+                return "waiting for tune"
+            if (run / "metrics.json").exists():
+                return "done"
+            log = self.log_path(run)
+            if str(log.relative_to(ROOT)) in failed:
+                return "FAILED"
+            if not log.exists():
+                return "pending"
+            # A killed run leaves its log behind; the next launch reruns it from the start.
+            return "running" if time.time() - log.stat().st_mtime < 1800 else "interrupted"
+
+        rows = [(phase, algo, w, P, G, run, state(run)) for phase, algo, w, P, G, run in self.planned]
+        lines = [f"# {self.dir.name} progress, updated {time.strftime('%Y-%m-%d %H:%M:%S')}", "",
+                 "Sweep counts grow by up to 2 runs per cell when the best rate sits at an end of the list.",
+                 "interrupted: log quiet for 30 min and no metrics.json; relaunch to rerun it.", "", "```"]
+        groups = {}
+        for r in rows:
+            groups.setdefault((r[0], r[1]), []).append(r[6])
+        for (phase, algo), states in groups.items():
+            done, n = states.count("done"), len(states)
+            bar = "#" * round(30 * done / n) + "." * (30 - round(30 * done / n))
+            extra = ", ".join(f"{states.count(k)} {k}" for k in ("running", "interrupted", "FAILED") if k in states)
+            lines.append(f"{phase:6s} {algo:8s} [{bar}] {done:4d}/{n:<4d} {100 * done / n:5.1f}%" + (f"  ({extra})" if extra else ""))
+        done = sum(r[6] == "done" for r in rows)
+        lines += [f"{'total':15s} {done}/{len(rows)} runs done", "```", "", "| phase | algorithm | width | population | generations | run | state |",
+                  "|---|---|---|---|---|---|---|"]
+        lines += [f"| {p} | {a} | {w} | {P} | {G} | {run.parent.name if run else '(after tune)'} | {st} |"
+                  for p, a, w, P, G, run, st in rows]
+        tmp = self.dir / "progress.md.tmp"
+        tmp.write_text("\n".join(lines) + "\n")
+        tmp.replace(self.dir / "progress.md")  # atomic: two GPUs may write at once
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["plan", "tune", "sweep", "seeds", "adamw"])
+    parser.add_argument("command", choices=["plan", "tune", "sweep", "seeds", "adamw", "status"])
     parser.add_argument("--study", default="scaling_mnist")
     parser.add_argument("--algorithms", nargs="*", default=None)
     parser.add_argument("--widths", nargs="*", type=int, default=None)
@@ -237,6 +300,9 @@ def main():
     study = Scaling(args)
     if args.command == "plan":
         study.plan(args.probe)
+    elif args.command == "status":
+        study.status()
+        print(study.dir / "progress.md")
     else:
         getattr(study, args.command)()
 
