@@ -7,6 +7,8 @@
     pixi run python scripts/campaigns/scaling_study.py adamw    # gradient reference
     pixi run python scripts/campaigns/scaling_study.py status   # rewrite progress.md now
     ... --algorithms dust --widths 32 64    # a slice, e.g. one per GPU
+    ... --worker 1 --workers 3              # several copies on one slice: copy k trains the runs
+                                            # whose name hashes to k (mod 3) and waits for the others'
 
 Safe to stop and re-run: finished runs (metrics.json present) are skipped. Each phase reads
 the previous phase's picks from outputs/study/<study>/tuned/. Every run start and end rewrites
@@ -21,6 +23,7 @@ import math
 import subprocess
 import sys
 import time
+import zlib
 from pathlib import Path
 
 from omegaconf import OmegaConf
@@ -74,11 +77,48 @@ class Scaling:
     def log_path(self, run):
         return self.dir / "logs" / f"{run.parent.name}.seed{run.name[5:]}.log"
 
-    def call(self, cmd, run, what, phase, algo, w, P, G):
+    def mine(self, key):
+        """True if this worker trains the run (or extension chain) named key."""
+        return self.dry or zlib.crc32(key.encode()) % self.args.workers == self.args.worker
+
+    def run_state(self, run, failed):
+        if run is None:
+            return "waiting for tune"
+        if (run / "metrics.json").exists():
+            return "done"
+        log = self.log_path(run)
+        if str(log.relative_to(ROOT)) in failed:
+            return "FAILED"
+        if not log.exists():
+            return "pending"
+        # A killed run leaves its log behind; the next launch reruns it from the start.
+        return "running" if time.time() - log.stat().st_mtime < 1800 else "interrupted"
+
+    def failed_logs(self):
+        timings = self.dir / "timings.csv"
+        if not timings.exists():
+            return set()
+        return {r["log"] for r in csv.DictReader(open(timings)) if r["exit_code"] != "0"}
+
+    def wait_done(self, runs):
+        """{run: best val loss or None}, once every run is done or failed (other workers' too)."""
+        told = False
+        while not self.dry:
+            failed = self.failed_logs()
+            waiting = [r for r in runs if self.run_state(r, failed) not in ("done", "FAILED")]
+            if not waiting:
+                break
+            if not told:
+                print(f"[{time.strftime('%H:%M:%S')}] waiting for other workers: {waiting[0].parent.name} and {len(waiting) - 1} more", flush=True)
+                told = True
+            time.sleep(30)
+        return {r: self.best_val(r) for r in runs}
+
+    def call(self, cmd, run, what, phase, algo, w, P, G, owner=None):
         if self.dry:
             self.planned.append((phase, algo, w, P, G, run))
             return
-        if (run / "metrics.json").exists():
+        if (run / "metrics.json").exists() or not self.mine(owner or run.parent.name):
             return
         log = self.log_path(run)
         start = time.time()
@@ -103,7 +143,7 @@ class Scaling:
         status.status()
 
     # ---- one ES run ----------------------------------------------------------------------
-    def es_run(self, phase, algo, w, P, noise, lr, seed, G):
+    def es_run(self, phase, algo, w, P, noise, lr, seed, G, owner=None):
         a = self.cfg.algorithms[algo]
         algo_label = label(a.optimizer)
         prefix = self.cfg.prefix + ("tune" if phase == "tune" else "")
@@ -115,7 +155,7 @@ class Scaling:
                f"fitness_batch_size={self.cfg.fitness_batch_size}", f"generations={G}",
                f"eval_every_gen={max(1, G // 200)}", "+eval_batch_size=1000", f"{a.noise_key}={noise}", f"es_learning_rate={lr}",
                f"variant={variant}", f"seed={seed}"]
-        self.call(cmd, run, f"{algo} {variant} seed {seed}", phase, algo, w, P, G)
+        self.call(cmd, run, f"{algo} {variant} seed {seed}", phase, algo, w, P, G, owner)
         return run
 
     def picked(self, name):
@@ -129,18 +169,17 @@ class Scaling:
     # ---- phases --------------------------------------------------------------------------
     def tune(self):
         P, G = self.cfg.tune.population, self.cfg.tune.generations
-        for algo in self.algorithms:
-            a = self.cfg.algorithms[algo]
-            for w in self.widths:
-                results = {}
-                for noise in a.noise:
-                    for lr in a.learning_rates:
-                        run = self.es_run("tune", algo, w, P, noise, lr, self.cfg.sweep_seed, G)
-                        results[(noise, lr)] = self.best_val(run)
-                done = {k: v for k, v in results.items() if v is not None and math.isfinite(v)}
-                if done and len(done) == len(results):
-                    noise, lr = min(done, key=done.get)
-                    self.pick(f"{algo}_w{w}_noise", {"noise": noise, "lr": lr, "val_loss": done[(noise, lr)]})
+        cells = {(algo, w): {(noise, lr): self.es_run("tune", algo, w, P, noise, lr, self.cfg.sweep_seed, G)
+                             for noise in self.cfg.algorithms[algo].noise
+                             for lr in self.cfg.algorithms[algo].learning_rates}
+                 for algo in self.algorithms for w in self.widths}
+        for (algo, w), runs in cells.items():
+            best = self.wait_done(list(runs.values()))
+            results = {k: best[run] for k, run in runs.items()}
+            done = {k: v for k, v in results.items() if v is not None and math.isfinite(v)}
+            if done and len(done) == len(results):
+                noise, lr = min(done, key=done.get)
+                self.pick(f"{algo}_w{w}_noise", {"noise": noise, "lr": lr, "val_loss": done[(noise, lr)]})
 
     def fits(self, algo, w, P):
         """False, and noted in skipped.json, when the population can't fit in memory."""
@@ -154,11 +193,21 @@ class Scaling:
             path.write_text(json.dumps(skipped, indent=2))
         return False
 
-    def rates_with_edges(self, algo, w, P, noise, seed):
-        """Run every listed rate; while the best is at an end, add the next one out (x/÷ 10^0.5)."""
-        rates = sorted(self.cfg.algorithms[algo].learning_rates)
+    def base_rates(self, algo, w, P, noise, seed):
+        """Starts this worker's share of the listed rates; returns {rate: run dir}."""
         G = self.generations(P, w)
-        results = {lr: self.best_val(self.es_run("sweep", algo, w, P, noise, lr, seed, G)) for lr in rates}
+        return {lr: self.es_run("sweep", algo, w, P, noise, lr, seed, G) for lr in self.cfg.algorithms[algo].learning_rates}
+
+    def rates_with_edges(self, algo, w, P, noise, seed, base):
+        """While the best rate is at an end, add the next one out (x/÷ 10^0.5). One worker
+        (by cell name) runs a cell's whole chain; the others return without a pick."""
+        rates = sorted(base)
+        G = self.generations(P, w)
+        best_by_run = self.wait_done(list(base.values()))
+        results = {lr: best_by_run[run] for lr, run in base.items()}
+        owner = f"{algo}_w{w}_p{P}_edges"
+        if not self.mine(owner):
+            return None
         for _ in range(2):
             done = {lr: v for lr, v in results.items() if v is not None and math.isfinite(v)}
             if self.command == "plan" or len(done) < len(results):
@@ -168,10 +217,11 @@ class Scaling:
                 break
             lr = float(f"{(best / 10 ** 0.5 if best == rates[0] else best * 10 ** 0.5):.3g}")
             rates = sorted(rates + [lr])
-            results[lr] = self.best_val(self.es_run("sweep", algo, w, P, noise, lr, seed, G))
+            results[lr] = self.best_val(self.es_run("sweep", algo, w, P, noise, lr, seed, G, owner))
         return results
 
     def sweep(self):
+        cells = []
         for algo in self.algorithms:
             for w in self.widths:
                 tuned = self.picked(f"{algo}_w{w}_noise")
@@ -185,13 +235,14 @@ class Scaling:
                     continue
                 noise = tuned["noise"] if tuned else self.cfg.algorithms[algo].noise[0]
                 for P in self.cfg.populations:
-                    if not self.fits(algo, w, P):
-                        continue
-                    results = self.rates_with_edges(algo, w, P, noise, self.cfg.sweep_seed)
-                    done = {lr: v for lr, v in results.items() if v is not None and math.isfinite(v)}
-                    if done and len(done) == len(results):
-                        best = min(done, key=done.get)
-                        self.pick(f"{algo}_w{w}_p{P}_lr", {"noise": noise, "lr": best, "val_loss": done[best]})
+                    if self.fits(algo, w, P):  # every cell's base rates first, extensions after
+                        cells.append((algo, w, P, noise, self.base_rates(algo, w, P, noise, self.cfg.sweep_seed)))
+        for algo, w, P, noise, base in cells:
+            results = self.rates_with_edges(algo, w, P, noise, self.cfg.sweep_seed, base)
+            done = {lr: v for lr, v in (results or {}).items() if v is not None and math.isfinite(v)}
+            if done and len(done) == len(results):
+                best = min(done, key=done.get)
+                self.pick(f"{algo}_w{w}_p{P}_lr", {"noise": noise, "lr": best, "val_loss": done[best]})
 
     def seeds(self):
         for algo in self.algorithms:
@@ -248,25 +299,8 @@ class Scaling:
         """Writes progress.md: a bar per phase and algorithm, then every run and its state."""
         for phase in (self.tune, self.sweep, self.seeds, self.adamw):
             phase()
-        failed = set()
-        timings = self.dir / "timings.csv"
-        if timings.exists():
-            failed = {r["log"] for r in csv.DictReader(open(timings)) if r["exit_code"] != "0"}
-
-        def state(run):
-            if run is None:
-                return "waiting for tune"
-            if (run / "metrics.json").exists():
-                return "done"
-            log = self.log_path(run)
-            if str(log.relative_to(ROOT)) in failed:
-                return "FAILED"
-            if not log.exists():
-                return "pending"
-            # A killed run leaves its log behind; the next launch reruns it from the start.
-            return "running" if time.time() - log.stat().st_mtime < 1800 else "interrupted"
-
-        rows = [(phase, algo, w, P, G, run, state(run)) for phase, algo, w, P, G, run in self.planned]
+        failed = self.failed_logs()
+        rows = [(phase, algo, w, P, G, run, self.run_state(run, failed)) for phase, algo, w, P, G, run in self.planned]
         lines = [f"# {self.dir.name} progress, updated {time.strftime('%Y-%m-%d %H:%M:%S')}", "",
                  "Sweep counts grow by up to 2 runs per cell when the best rate sits at an end of the list.",
                  "interrupted: log quiet for 30 min and no metrics.json; relaunch to rerun it.", "", "```"]
@@ -295,6 +329,8 @@ def main():
     parser.add_argument("--algorithms", nargs="*", default=None)
     parser.add_argument("--widths", nargs="*", type=int, default=None)
     parser.add_argument("--pilot", action="store_true", help="2 widths, 2 populations, short runs")
+    parser.add_argument("--worker", type=int, default=0, help="this copy's index, 0 .. workers-1")
+    parser.add_argument("--workers", type=int, default=1, help="copies sharing the same slice")
     parser.add_argument("--probe", default=None, help="plan: probe CSV (algo,w,P,chunk,s_per_gen,status,...)")
     args = parser.parse_args()
     study = Scaling(args)

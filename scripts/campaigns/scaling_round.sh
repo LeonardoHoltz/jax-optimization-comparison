@@ -4,7 +4,9 @@
 # on them. The groups hold about equal GPU time, so 1, 2 or 4 GPUs share the work evenly.
 # Then fits and plots go to outputs/reports/scaling_mnist/.
 #   setsid nohup scripts/campaigns/scaling_round.sh 0 1 2 3 > scaling_round.log 2>&1 < /dev/null &
-# Arguments: GPU indices (default 0). Logs: scaling_gpu<index>.log.
+# Arguments: GPU indices (default 0). WORKERS=3 (default) runs 3 copies per GPU, splitting its
+# runs by run name, so small models that can't fill a GPU overlap. Lower it on GPU OOM.
+# Logs: scaling_gpu<index>_<worker>.log.
 # Progress: outputs/study/scaling_mnist/progress.md, rewritten at each run's start and end.
 # Resume: launch the same command again. Finished runs (metrics.json) are skipped; a run cut
 # off midway starts over. Stop: kill -- -$(cat outputs/study/scaling_mnist/round.pgid)
@@ -13,6 +15,7 @@ cd "$(dirname "$0")/../.."
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 S="pixi run python scripts/campaigns/scaling_study.py"
 GPUS=("${@:-0}")
+WORKERS=${WORKERS:-3}
 GROUPS_=("16" "32 1" "64 2" "8 4")  # ~15 GPU h each on an RTX 3070 (cost probe)
 mkdir -p outputs/study/scaling_mnist
 ps -o pgid= $$ | tr -d ' ' > outputs/study/scaling_mnist/round.pgid
@@ -22,9 +25,12 @@ for i in "${!GPUS[@]}"; do
     widths=""
     for ((g = i; g < ${#GROUPS_[@]}; g += ${#GPUS[@]})); do widths="$widths ${GROUPS_[g]}"; done
     [ -z "$widths" ] && continue  # more GPUs than groups
-    (export CUDA_VISIBLE_DEVICES=${GPUS[i]}
-     $S tune --widths $widths && $S sweep --widths $widths && $S adamw --widths $widths
-    ) > scaling_gpu${GPUS[i]}.log 2>&1 &
+    for ((k = 0; k < WORKERS; k++)); do
+        W="--widths $widths --worker $k --workers $WORKERS"
+        (export CUDA_VISIBLE_DEVICES=${GPUS[i]}
+         $S tune $W && $S sweep $W && $S adamw $W
+        ) > scaling_gpu${GPUS[i]}_$k.log 2>&1 &
+    done
 done
 wait
 $S status
