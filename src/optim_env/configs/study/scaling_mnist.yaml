@@ -22,9 +22,9 @@ algorithms:
     noise_key: init_std_multiplier
     noise: [0.25, 0.5, 1.0, 2.0]
     learning_rates: [1.0e-3, 3.0e-3, 1.0e-2, 3.0e-2]
-    # evosax keeps ~3 copies of the population (P x params floats); above this it won't fit
-    # in 20 GB. Skips only w=64 at P=4096; listed in skipped.json.
-    max_population_x_params: 1.0e9
+    # evosax keeps ~3 copies of the population (P x params floats). 5e9 floats is ~60 GB, so
+    # every cell fits on a 140 GB GPU; use 1e9 on 20 GB cards (skips w=64 at P=4096).
+    max_population_x_params: 5.0e9
   # Node perturbation: per-example noise on every layer output, SGD with momentum 0.9.
   # sigma is in activation units, so it is not rescaled per width.
   dust:
@@ -58,5 +58,6 @@ extra_seeds: []
 adamw: {learning_rates: [3.0e-4, 1.0e-3, 3.0e-3, 1.0e-2], epochs: 100, patience: 10, seeds: [0]}
 
 # Members scored at once. A chunk holds chunk x 256 images of activations, about
-# 1,400 w floats each, so the chunk shrinks as the width grows.
-chunk_images_per_width: 512  # chunk = clamp(512 // w, 8, P)
+# 1,400 w floats each, so the chunk shrinks as the width grows. Results don't depend on it.
+# 8192 is ~12 GB per pass, for 140 GB GPUs; use 512 on 8 GB cards, 2048 on 20 GB.
+chunk_images_per_width: 8192  # chunk = clamp(8192 // w, 8, P)
